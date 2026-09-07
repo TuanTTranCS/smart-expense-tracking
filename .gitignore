@@ -1,3 +1,48 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+*/build/
+bin/
+
+# Android SDK local machine config
+local.properties
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# Logs / reports
+*.log
+captures/
+.navigation/
+
+# Test / coverage outputs
+coverage/
+jacoco/
+*.ec
+
+# Signing material and local secrets
+*.jks
+*.keystore
+*.p12
+.env
+.env.*
+
+# Project-local tooling artifacts
+.codex-remote-attachments/
+
+# Optional: ignore generated app bundles/APKs if ever produced locally
+*.apk
+*.aab
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

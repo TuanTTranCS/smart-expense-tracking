@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "11111111-2222-4333-8444-555555555555",
+  "createdAt": "2026-06-27T08:15:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-27",
+  "merchantName": "Morning Service",
+  "totalAmount": 12.5,
+  "currency": "CAD",
+  "extractionStatus": "manual",
+  "category": null,
+  "paymentMethod": null,
+  "taxAmount": null,
+  "tipAmount": null,
+  "merchantLocation": null,
+  "merchantAddress": null,
+  "originalImageFileName": null,
+  "receiptImageUri": null,
+  "receiptPhotoLink": null,
+  "notes": null,
+  "rawModelOutput": null
+}

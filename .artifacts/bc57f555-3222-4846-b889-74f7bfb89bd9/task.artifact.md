@@ -1,0 +1,5 @@
+- `[/]` Upgrade Gradle to 9.7.0
+    - `[ ]` Update `gradle-wrapper.properties`
+    - `[ ]` Update root `build.gradle.kts` (AGP version)
+    - `[ ]` Sync and verify build
+- `[ ]` Verify against requirements and update status

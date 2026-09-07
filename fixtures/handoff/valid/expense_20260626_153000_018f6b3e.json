@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "018f6b3e-9c6e-7c41-8e1a-4f7c3a8a9b11",
+  "createdAt": "2026-06-26T15:30:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-26",
+  "merchantName": "Example Shop",
+  "totalAmount": 42.35,
+  "currency": "CAD",
+  "extractionStatus": "confirmed",
+  "category": "Groceries",
+  "paymentMethod": "Credit card",
+  "taxAmount": 1.95,
+  "tipAmount": null,
+  "merchantLocation": "Vancouver, BC",
+  "merchantAddress": null,
+  "originalImageFileName": "IMG_20260626_153000.jpg",
+  "receiptImageUri": null,
+  "receiptPhotoLink": null,
+  "notes": "Fixture generated for Phase 1 contract validation.",
+  "rawModelOutput": {
+    "receiptDate": "2026-06-26",
+    "merchantName": "Example Shop",
+    "totalAmount": 42.35,
+    "currency": "CAD"
+  }
+}

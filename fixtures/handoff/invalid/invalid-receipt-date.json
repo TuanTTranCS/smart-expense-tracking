@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "33333333-4444-4555-8666-777777777777",
+  "createdAt": "2026-06-26T16:45:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-02-31",
+  "merchantName": "Impossible Date Shop",
+  "totalAmount": 19.99,
+  "currency": "CAD",
+  "extractionStatus": "confirmed"
+}

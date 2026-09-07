@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "44444444-5555-4666-8777-888888888888",
+  "createdAt": "2026-06-26T17:00:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-26",
+  "merchantName": "Negative Amount Shop",
+  "totalAmount": -1.0,
+  "currency": "CAD",
+  "extractionStatus": "confirmed"
+}

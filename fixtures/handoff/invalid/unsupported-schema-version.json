@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 99,
+  "expenseId": "55555555-6666-4777-8888-999999999999",
+  "createdAt": "2026-06-26T17:15:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-26",
+  "merchantName": "Future Schema Shop",
+  "totalAmount": 7.25,
+  "currency": "CAD",
+  "extractionStatus": "confirmed"
+}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "22222222-3333-4444-8555-666666666666",
+  "createdAt": "2026-06-26T16:30:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-26",
+  "totalAmount": 19.99,
+  "currency": "CAD",
+  "extractionStatus": "confirmed"
+}

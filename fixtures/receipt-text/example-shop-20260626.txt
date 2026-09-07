@@ -1,0 +1,14 @@
+EXAMPLE SHOP
+123 Sample Street
+Vancouver BC
+
+DATE: 2026-06-26
+TIME: 15:30
+
+Item A                         12.40
+Item B                         27.99
+GST                             1.96
+
+TOTAL CAD                       42.35
+
+Payment: Credit card

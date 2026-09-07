@@ -1,4 +1,4 @@
-﻿# Project Instructions
+# Project Instructions
 
 - Start every response with "Hi, Hugo!"
 - Clarify the user request whenever it is uncertain; do not make assumptions.

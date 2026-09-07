@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "expenseId": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+  "createdAt": "2026-06-23T16:40:00-07:00",
+  "sourceDeviceId": "android-phone-1",
+  "receiptDate": "2026-06-23",
+  "merchantName": "Daily Numbers",
+  "totalAmount": 60.0,
+  "currency": "CAD",
+  "extractionStatus": "manual",
+  "category": "Lottery",
+  "paymentMethod": null,
+  "taxAmount": null,
+  "tipAmount": null,
+  "merchantLocation": null,
+  "merchantAddress": null,
+  "originalImageFileName": "Photo 1.jpg",
+  "receiptImageUri": null,
+  "receiptPhotoLink": null,
+  "notes": "Derived from receipt example image. Lottery field shows LOTTO MAX; merchant/service label may require user confirmation.",
+  "rawModelOutput": {
+    "headerText": "DAILY NUMBERS",
+    "purchasedAt": "2026-06-23 16:40",
+    "drawDate": "2026-06-23",
+    "lottery": "LOTTO MAX",
+    "totalAmountText": "$60"
+  }
+}

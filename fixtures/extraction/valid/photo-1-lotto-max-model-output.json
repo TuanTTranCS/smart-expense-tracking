@@ -1,0 +1,10 @@
+{
+  "receiptDate": "2026-06-23",
+  "merchantName": "Daily Numbers",
+  "totalAmount": 60,
+  "currency": "CAD",
+  "extractionStatus": "confirmed",
+  "confidence": 0.86,
+  "merchantLocation": null
+}
+

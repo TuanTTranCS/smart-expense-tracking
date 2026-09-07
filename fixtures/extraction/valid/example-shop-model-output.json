@@ -1,0 +1,10 @@
+{
+  "receiptDate": "2026-06-26",
+  "merchantName": "Example Shop",
+  "totalAmount": 42.35,
+  "currency": "CAD",
+  "extractionStatus": "confirmed",
+  "confidence": 0.94,
+  "merchantLocation": "Vancouver BC"
+}
+
