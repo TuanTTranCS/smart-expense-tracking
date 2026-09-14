@@ -172,6 +172,10 @@ internal class FakeRepository : ModelProfileRepository {
     override suspend fun saveProfile(profile: ModelProfile) {
         profiles.value = profiles.value.filterNot { it.id == profile.id } + profile
     }
+    override suspend fun saveProfiles(profiles: List<ModelProfile>) {
+        val importedIds = profiles.mapTo(mutableSetOf()) { it.id }
+        this.profiles.value = this.profiles.value.filterNot { it.id in importedIds } + profiles
+    }
     override suspend fun selectProfile(id: String?) { selector.value = selector.value.copy(selectedRemoteProfileId = id) }
     override suspend fun setRemoteProvidersEnabled(enabled: Boolean) { selector.value = selector.value.copy(remoteProvidersEnabled = enabled) }
     override suspend fun deleteProfile(id: String) {

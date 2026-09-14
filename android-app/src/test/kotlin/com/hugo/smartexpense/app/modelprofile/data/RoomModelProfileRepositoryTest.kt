@@ -57,6 +57,21 @@ class RoomModelProfileRepositoryTest {
         assertNull(repository.observeSelectorState().first().selectedRemoteProfileId)
     }
 
+    @Test fun savesImportedProfilesTogetherWithoutChangingSelector() = runTest {
+        repository.saveProfile(profile("selected", "Selected"))
+        repository.setRemoteProvidersEnabled(true)
+        repository.selectProfile("selected")
+
+        repository.saveProfiles(listOf(profile("import-1", "Imported One"), profile("import-2", "Imported Two")))
+
+        assertEquals(
+            listOf("import-1", "import-2", "selected"),
+            repository.observeProfiles().first().map { it.id },
+        )
+        assertEquals("selected", repository.observeSelectorState().first().selectedRemoteProfileId)
+        assertEquals(true, repository.observeSelectorState().first().remoteProvidersEnabled)
+    }
+
     private fun profile(id: String, name: String) = ModelProfile(
         id, name, "https://example.test/v1", "model-$id", RemoteInputMode.DIRECT_IMAGE,
         RemoteStructuredOutputFormat.JSON_SCHEMA, ModelProfile.credentialAlias(id), 1, 1,

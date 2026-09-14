@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,7 +35,12 @@ import com.hugo.smartexpense.extraction.RemoteInputMode
 import com.hugo.smartexpense.extraction.RemoteStructuredOutputFormat
 
 @Composable
-fun ModelProfilesPanel(state: ModelProfilesUiState, viewModel: ModelProfilesViewModel) {
+fun ModelProfilesPanel(
+    state: ModelProfilesUiState,
+    viewModel: ModelProfilesViewModel,
+    onExportProfiles: () -> Unit,
+    onImportProfiles: () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Model Selector", style = MaterialTheme.typography.headlineMedium)
         Text(state.effectiveProviderSummary)
@@ -55,15 +63,59 @@ fun ModelProfilesPanel(state: ModelProfilesUiState, viewModel: ModelProfilesView
 
         val editor = state.editor
         if (editor == null) {
-            ProfileList(state, viewModel)
+            ProfileList(state, viewModel, onExportProfiles, onImportProfiles)
         } else {
             ProfileEditor(editor, state.busy, viewModel)
+        }
+
+        state.importPreview?.let { preview ->
+            AlertDialog(
+                onDismissRequest = viewModel::cancelProviderConfigImport,
+                title = { Text("Import ${preview.profileCount} provider profile${if (preview.profileCount == 1) "" else "s"}?") },
+                text = {
+                    Column(
+                        modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        preview.config.profiles.forEach { profile ->
+                            Text("${profile.displayName} — ${profile.modelId}")
+                            Text(profile.baseUrl, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (preview.conflictCount > 0) {
+                            Text(
+                                if (preview.conflictCount == 1) {
+                                    "1 existing profile ID conflict will be saved as a new copy."
+                                } else {
+                                    "${preview.conflictCount} existing profile ID conflicts will be saved as new copies."
+                                },
+                            )
+                        }
+                        Text("API keys are not included. Add credentials separately after import.")
+                        Text("Your current provider selection and remote-provider setting will not change.")
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = viewModel::confirmProviderConfigImport, enabled = !state.busy) {
+                        Text("Import profiles")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::cancelProviderConfigImport, enabled = !state.busy) {
+                        Text("Cancel")
+                    }
+                },
+            )
         }
     }
 }
 
 @Composable
-private fun ProfileList(state: ModelProfilesUiState, viewModel: ModelProfilesViewModel) {
+private fun ProfileList(
+    state: ModelProfilesUiState,
+    viewModel: ModelProfilesViewModel,
+    onExportProfiles: () -> Unit,
+    onImportProfiles: () -> Unit,
+) {
     var deleteTarget by remember { mutableStateOf<ModelProfile?>(null) }
     Text("Saved profiles", style = MaterialTheme.typography.headlineSmall)
     if (state.profiles.isEmpty()) {
@@ -90,6 +142,16 @@ private fun ProfileList(state: ModelProfilesUiState, viewModel: ModelProfilesVie
         }
     }
     Button(onClick = viewModel::addProfile, enabled = !state.busy) { Text("Add profile") }
+    OutlinedButton(
+        onClick = onExportProfiles,
+        enabled = state.profiles.isNotEmpty() && !state.busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Export all profiles") }
+    OutlinedButton(
+        onClick = onImportProfiles,
+        enabled = !state.busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Import profiles") }
 
     deleteTarget?.let { profile ->
         AlertDialog(

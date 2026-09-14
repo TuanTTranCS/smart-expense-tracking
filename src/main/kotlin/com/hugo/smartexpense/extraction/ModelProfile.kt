@@ -83,6 +83,7 @@ interface ModelProfileRepository {
     fun observeSelectorState(): kotlinx.coroutines.flow.Flow<ModelProfileSelectorState>
     suspend fun getProfile(id: String): ModelProfile?
     suspend fun saveProfile(profile: ModelProfile)
+    suspend fun saveProfiles(profiles: List<ModelProfile>)
     suspend fun selectProfile(id: String?)
     suspend fun setRemoteProvidersEnabled(enabled: Boolean)
     suspend fun deleteProfile(id: String)

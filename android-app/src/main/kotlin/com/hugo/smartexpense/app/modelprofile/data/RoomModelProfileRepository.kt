@@ -19,6 +19,9 @@ class RoomModelProfileRepository(
 
     override suspend fun saveProfile(profile: ModelProfile) = dao.upsertProfile(ModelProfileEntity.fromDomain(profile))
 
+    override suspend fun saveProfiles(profiles: List<ModelProfile>) =
+        dao.upsertProfilesAtomically(profiles.map(ModelProfileEntity::fromDomain))
+
     override suspend fun selectProfile(id: String?) {
         dao.selectExistingProfile(id)
     }

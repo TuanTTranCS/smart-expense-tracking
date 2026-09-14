@@ -1,12 +1,17 @@
 # Current Status
 
-Last updated: 2026-09-06
+- ✅ Done: Set the Android launcher label to `Smart Expense Tracking` and configured the supplied `images/smart-expense.png` as the launcher icon resource.
+- ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
+
+Last updated: 2026-09-11
 
 ## Overall Status
 
-The Android app implements persistent management of multiple named OpenAI-compatible model profiles. Room stores non-secret profile metadata and selector state, encrypted preferences store distinct per-profile credentials, bootstrap migrates legacy LM Studio settings and now seeds the bundled LM Studio Gemma profile once, and extraction resolves an immutable saved-profile snapshot with deterministic local fallback. The user successfully verified the multiple-profile feature on a physical Pixel 7. During that validation, the user reported that the first multi-profile build omitted the default LM Studio entry; the 2026-09-05 fix restores it alongside user profiles.
+The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 
 ## Completed
+
+- ✅ Done: Implemented the app-view separation plan with Main and Settings Navigation Compose destinations, Settings-only configuration controls, compact Main provider selection, selected saved-provider verification, local Gemma model readiness checking, contextual OneDrive recovery without routine Disconnect, shared receipt workflow state, persisted preprocessing settings, and protected Settings Back/Up behavior. Added focused unit coverage, compiled Compose tests, assembled the debug APK, and verified against `REQ-UI-001` through `REQ-UI-005` and `AC-022` through `AC-025`. The separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 
 - ✅ Done: Updated the LM Studio test profile to use `json_schema` structured output after emulator testing showed that the server rejects legacy `json_object`. The connectivity probe now requires exactly `{"status":"ok"}`.
 - ✅ Done: Ran the LM Studio provider-test action on the Pixel 8a emulator. The app connected successfully to `http://10.0.0.207:1234/v1` using `google/gemma-4-e2b` and received the expected JSON-schema response.
@@ -56,9 +61,13 @@ The Android app implements persistent management of multiple named OpenAI-compat
 - ✅ Done: Verified shared JVM tests, Android app unit tests (including Room, migration, resolver, and ViewModel coverage), Compose-test compilation, and `:android-app:assembleDebug` on 2026-09-01.
 - ✅ Done: Added `REQ-M-021` and a one-time bundled LM Studio bootstrap for clean installs and upgrades. It preserves user profiles, avoids equivalent duplicates, stays unselected, and supplies the LM Studio placeholder credential. Migration tests and debug assembly passed on 2026-09-05.
 - ✅ Done: User-verified the multiple model-profile feature successfully on a physical Pixel 7 on 2026-09-05.
+- ✅ Done: Added bulk provider-configuration JSON export/import through Android's Storage Access Framework. Exports include all remote-profile metadata and selector state but no credentials; imports validate and preview the whole file, atomically save profiles, copy conflicting IDs, create local credential aliases, and preserve the device's current selector state. Codec, ViewModel, Room, shared JVM, Android unit-test, Compose-test compilation, and debug APK verification pass on 2026-09-10.
+- ✅ Done: User-validated provider-profile JSON export/import through the Android system document picker on a physical device on 2026-09-10.
 - ✅ Done: Defined the paired receipt export requirements on 2026-09-05: normalize a JPEG below 200 KB, upload it under `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM`, add required Version 2 `receiptImageRelativePath`, then publish the final JSON as the commit marker. Implementation followed on 2026-09-06.
 - ✅ Done: Implemented the Microsoft Graph authentication code path with MSAL 8.4.2 single-account mode, personal-account audience, delegated `Files.ReadWrite`, silent token acquisition, safe recovery states, explicit sign-out, and read-only verification of the confirmed OneDrive folder. Focused Android unit tests and debug assembly pass.
+- ✅ Done: Fixed the Microsoft Connect no-op caused by the debug APK being signed with a sandbox-specific certificate that did not match the Entra redirect. Debug signing now resolves the stable host keystore, supports explicit Gradle/environment overrides, and fails the build if the signing certificate disagrees with either MSAL redirect configuration. Verification, Android unit tests, and debug assembly pass on 2026-09-09.
 - ✅ Done: Implemented confirmed-receipt export with stable expense identity and device-local timestamp, always-normalized sub-200-KB JPEG storage, Room-backed retry records, deterministic paired OneDrive paths, idempotent monthly-folder handling, image-first upload, Version 2 JSON generation, temporary upload/final-name commit, actionable failure mapping, and retry UI. Focused Android unit tests pass on 2026-09-06.
+- ✅ Done: User-validated Microsoft OneDrive access and successful saving of the receipt handoff JSON file on a physical device on 2026-09-10.
 
 - ✅ Done: Added the multiple-receipt extraction rule to direct-image and OCR-text prompts: matching itemized and finalized documents yield one expense using the finalized amount including tax and tip, totals are never summed, and ambiguous pairs are marked `low_confidence`. Prompt contract tests were added on 2026-09-06.
 
@@ -67,18 +76,14 @@ The Android app implements persistent management of multiple named OpenAI-compat
 - Phase 1 integration spike planning and exploration.
 - Concrete Phase 1 plan: `docs/1.integration-plan.md`.
 - Workstream 0 fixtures are now based on both synthetic and real receipt examples.
-- Workstream 1 Android extraction is API-first. Android Settings, secure key storage, saved-profile resolution, and the real HTTP transport are wired; runtime multi-profile verification and LiteRT-LM execution remain.
-- In Progress: The receipt picker, extraction review, and paired export code paths are implemented. Physical Pixel 7 verification of the real Microsoft sign-in and paired OneDrive export remains.
-- Local-provider groundwork is available. The parser/validation spike, runtime orchestration, model pinning, Android adapter bridge, Android module wiring, workspace SDK setup, and Android module build verification are complete; the remaining local-provider step is deferred until after the API path is proven.
-- Microsoft Graph authentication runtime verification is pending. Replace the placeholder client ID and redirect signature with an Entra Android registration, then validate connect, silent restore, folder verification, disconnect, and reconnect on the Pixel 7. See `docs/microsoft-graph-OneDrive-plan.md`.
-- Paired receipt-image/Version 2 JSON export physical-device verification is pending; implementation and focused unit coverage are complete.
+- Workstream 1 Android extraction is API-first. Android Settings, secure key storage, saved-profile resolution, real HTTP transport, local readiness verification, and LiteRT-LM runtime selection are wired; physical-device LiteRT-LM execution remains.
+- Local-provider implementation is wired through the Android LiteRT-LM module when the pinned model exists in the app-private models directory. Device execution and performance remain unverified.
 
 ## Pending Decisions
 
 - Confirm the real remote endpoints/models to use for device verification; profiles now support user-selectable direct-image or OCR-text input, normalized HTTP(S) base URLs, nonblank model IDs, and JSON object/schema output.
 - Confirm the exact Google AI Edge API or LiteRT-LM extraction path for receipt images after the API-provider spike.
 - Select the Android test device for the local extraction spike. The model target is now pinned to `Gemma 4 E2B`, and the workspace build is ready for device testing.
-- Create the real Microsoft Entra Android app registration and insert its client ID plus debug-signature redirect URI; the delegated permission, personal-account audience, and MSAL token-refresh behavior are now defined in `docs/microsoft-graph-OneDrive-plan.md`.
 - Confirm the meanings of Excel columns F and G in `Canada plan.xlsx`.
 - Confirm the desired action when a similar record already exists: skip, quarantine for review, or insert with a warning.
 - Confirm whether monthly sheets are created manually or by the PowerShell agent.
@@ -86,4 +91,4 @@ The Android app implements persistent management of multiple named OpenAI-compat
 
 ## Current Recommendation
 
-Continue Workstream 2 on the Pixel 7: configure the real Entra registration, verify authentication, export one normalized receipt JPEG followed by its Version 2 handoff JSON, and exercise a retry after interruption. Defer LiteRT-LM device execution until the paired Graph export is proven end-to-end.
+Continue Workstream 2 by exercising interrupted-export retry and reconnect/silent-restore behavior on the Pixel 7. Defer LiteRT-LM device execution until the paired Graph export path has been verified end-to-end, including retry behavior.

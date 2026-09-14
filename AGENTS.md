@@ -9,3 +9,4 @@
   - Cover the implementation with unit tests.
   - Verify it against [requirements.md](docs/requirements.md).
   - Mark the task implementation status as ✅ Done.
+  - Check whether `README.md` needs an update; keep it short.

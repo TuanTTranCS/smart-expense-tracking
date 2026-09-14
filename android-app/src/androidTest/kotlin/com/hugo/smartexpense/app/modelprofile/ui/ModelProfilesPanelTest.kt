@@ -32,6 +32,8 @@ class ModelProfilesPanelTest {
     @Test fun createsAndSelectsAProfileWithoutPersistingTheSecretInUiState() {
         val repository = UiRepository()
         val credentials = UiCredentials()
+        var exportRequests = 0
+        var importRequests = 0
         val viewModel = ModelProfilesViewModel(
             repository, credentials, SelectedReceiptModelProviderResolver(repository),
             ModelProfileTestService { _, _ -> ProviderTestResult.Success },
@@ -40,11 +42,20 @@ class ModelProfilesPanelTest {
         compose.setContent {
             val state by viewModel.uiState.collectAsState()
             MaterialTheme {
-                Column(Modifier.verticalScroll(rememberScrollState())) { ModelProfilesPanel(state, viewModel) }
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    ModelProfilesPanel(
+                        state,
+                        viewModel,
+                        onExportProfiles = { exportRequests++ },
+                        onImportProfiles = { importRequests++ },
+                    )
+                }
             }
         }
 
         compose.onNodeWithText("No remote profiles are saved. Local extraction remains selected.").assertIsDisplayed()
+        compose.onNodeWithText("Import profiles").performClick()
+        check(importRequests == 1)
         compose.onNodeWithText("Add profile").performClick()
         compose.onNodeWithText("Display name").performTextInput("Home server")
         compose.onNodeWithText("Base URL").performTextInput("https://example.test/v1")
@@ -55,17 +66,23 @@ class ModelProfilesPanelTest {
         compose.onNodeWithText("Home server").assertIsDisplayed()
         compose.onNodeWithText("Selected for next extraction").assertIsDisplayed()
         compose.onNodeWithText("Home server (model-a) will be used for the next extraction.").assertTextContains("Home server")
+        compose.onNodeWithText("Export all profiles").performClick()
+        check(exportRequests == 1)
         check(credentials.values["remote-provider:ui-profile"] == "secret-value")
     }
 }
 
-private class UiRepository : ModelProfileRepository {
+internal class UiRepository : ModelProfileRepository {
     val profiles = MutableStateFlow<List<ModelProfile>>(emptyList())
     val selector = MutableStateFlow(ModelProfileSelectorState())
     override fun observeProfiles() = profiles
     override fun observeSelectorState() = selector
     override suspend fun getProfile(id: String) = profiles.value.firstOrNull { it.id == id }
     override suspend fun saveProfile(profile: ModelProfile) { profiles.value = profiles.value.filterNot { it.id == profile.id } + profile }
+    override suspend fun saveProfiles(profiles: List<ModelProfile>) {
+        val ids = profiles.mapTo(mutableSetOf()) { it.id }
+        this.profiles.value = this.profiles.value.filterNot { it.id in ids } + profiles
+    }
     override suspend fun selectProfile(id: String?) { selector.value = selector.value.copy(selectedRemoteProfileId = id) }
     override suspend fun setRemoteProvidersEnabled(enabled: Boolean) { selector.value = selector.value.copy(remoteProvidersEnabled = enabled) }
     override suspend fun deleteProfile(id: String) {
@@ -74,7 +91,7 @@ private class UiRepository : ModelProfileRepository {
     }
 }
 
-private class UiCredentials : WritableApiKeyStore {
+internal class UiCredentials : WritableApiKeyStore {
     val values = mutableMapOf<String, String>()
     override fun get(alias: String) = values[alias]
     override fun put(alias: String, value: String) { values[alias] = value }

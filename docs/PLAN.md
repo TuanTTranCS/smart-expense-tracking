@@ -1,10 +1,11 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-09-06
+Last updated: 2026-09-11
 
 ## Stack Direction
 
 Android app:
+
 - Kotlin
 - Jetpack Compose
 - Android Photo Picker and CameraX
@@ -12,20 +13,24 @@ Android app:
 - Provider-based extraction with local Google AI Edge/LiteRT-LM as the default provider
 - Optional user-configured OpenAI-compatible API providers
 - Settings screen with persistent multi-profile management and a Model Selector
+- Single-activity Compose navigation with a focused Main receipt workflow and separate Settings destination
 
 Windows automation:
+
 - Hermes agent as scheduler/orchestrator
 - PowerShell action
 - Excel automation or Microsoft Graph workbook APIs depending on workbook access behavior
 - Local state file for idempotency, plus workbook-level duplicate checks
 
 Data exchange:
+
 - One normalized receipt JPEG plus one JSON handoff file per confirmed expense
 - Versioned schema
 - Microsoft Graph upload to OneDrive as the queue/sync transport
 - Image-first publication; the final JSON is the commit marker for the paired export
 
 Excel integration:
+
 - Target workbook: `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`
 - Target sheet name: monthly `YYYY-MM`
 - Insert new expense rows after row 12.
@@ -60,6 +65,7 @@ flowchart LR
 Status: ✅ Done
 
 Deliverables:
+
 - Requirements draft
 - Feasibility summary
 - Open decisions list
@@ -70,14 +76,17 @@ Deliverables:
 Status: In Progress
 
 Planning artifact:
+
 - `docs/1.integration-plan.md`
 
 Goals:
+
 - Evaluate and spike optional OpenAI-compatible API extraction behind the same structured extraction contract first.
 - Define the Settings Model Selector contract for local and remote providers.
 - Verify the Google AI Edge API or LiteRT-LM Android extraction path after the API-provider path is proven. Parser/validation spike is implemented; Android device/model execution is pending.
 - Prototype receipt extraction, including whether OCR/preprocessing is required.
 - ✅ Done: Implement and unit-test paired Microsoft Graph upload from Android: receipt JPEG first, then the final JSON handoff. Physical-device verification remains.
+- ✅ Done: Make Android debug signing use the stable host debug keystore and fail debug builds when the APK certificate does not match the configured MSAL JSON and manifest redirects.
 - Verify Hermes can run the required PowerShell action.
 - Verify row insertion after row 12 in `Canada plan.xlsx` against a copy of the real workbook.
 - Verify duplicate/similar-record detection against the monthly sheet.
@@ -87,11 +96,15 @@ Goals:
 Status: Pending
 
 Goals:
+
 - Capture/import receipt image.
 - ✅ Done: Provide a default-enabled option that reduces selected images larger than 200 KB to strictly below 200 KB before extraction.
+- ✅ Done: Separate Main receipt operations from Settings configuration while preserving receipt state across navigation; add compact provider verification, contextual OneDrive readiness, and local Gemma model-file readiness checks.
+- ✅ Done: Verify the separated Main and Settings experience on a physical Pixel 7.
 - Extract receipt fields with the selected provider, defaulting to on-device extraction.
 - ✅ Done: In both direct-image and OCR-text prompts, treat matching itemized and finalized receipts as one transaction and extract the finalized amount including tax and tip without summing receipt totals.
 - ✅ Done: Configure, test, save, select, edit, and delete persistent OpenAI-compatible provider profiles through Settings, with secure per-profile credentials and local fallback.
+- ✅ Done: Export all saved remote-provider metadata and selector state to a versioned JSON document, and preview/import validated profile files atomically without exporting credentials or changing the current selection.
 - Review and correct extracted data.
 - ✅ Done: After the receipt image succeeds, publish the final Version 2 JSON handoff using Microsoft Graph.
 - ✅ Done: Upload a normalized receipt JPEG below 200 KB first and include its deterministic OneDrive-relative path in the Version 2 JSON.
@@ -100,9 +113,11 @@ Goals:
 - ✅ Done: Track export status locally with a Room-backed record and actionable retry state.
 
 Testing:
+
 - Unit tests for extraction response parsing.
 - ✅ Done: Unit tests for the multiple-receipt prompt contract in both direct-image and OCR-text modes.
 - Unit tests for provider/model selection rules.
+- ✅ Done: Unit tests for provider-configuration JSON round trips, invalid input, credential exclusion, conflict copying, selector preservation, ViewModel confirmation, and atomic Room persistence.
 - Unit tests for OpenAI-compatible request construction, credential redaction, and error mapping.
 - Unit tests for handoff schema generation.
 - ✅ Done: Unit tests for receipt-image normalization, paired path generation, upload ordering, and idempotent retry.
@@ -115,6 +130,7 @@ Testing:
 Status: Pending
 
 Goals:
+
 - Poll handoff folder every 5 minutes.
 - Validate JSON files.
 - De-duplicate by expenseId.
@@ -124,6 +140,7 @@ Goals:
 - Archive processed files and quarantine failures.
 
 Testing:
+
 - Unit tests for schema validation.
 - Unit tests for Excel row mapping.
 - Unit tests for idempotency.
@@ -134,12 +151,14 @@ Testing:
 Status: Pending
 
 Goals:
+
 - Keep using Amazon Photos as the phone backup location.
 - Add receiptPhotoLink to the handoff schema only when a stable Amazon Photos link is available.
 - Include the link in Excel only when present.
 - Keep this optional full-resolution external link separate from the required normalized OneDrive receipt JPEG.
 
 Testing:
+
 - Unit tests for optional-link handling.
 - Integration test that missing links do not block expense processing.
 
@@ -157,6 +176,7 @@ Testing:
 ## Definition of Done
 
 A planned task is done only when:
+
 - implementation is complete
 - unit tests cover the behavior
 - behavior is checked against `docs/requirements.md`

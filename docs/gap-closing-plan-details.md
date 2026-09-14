@@ -1,6 +1,10 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-09-06
+Last updated: 2026-09-11
+
+## Cross-Cutting Android Branding
+
+Status: ✅ Done — the launcher label is `Smart Expense Tracking` and the supplied `images/smart-expense.png` asset is configured as the launcher icon. Both were verified on a physical Pixel 7 on 2026-09-12.
 
 ## Gap 1: Model Provider and Local Extraction Path
 
@@ -28,7 +32,9 @@ Resolution path:
 - ✅ Done: Implemented multiple named OpenAI-compatible profile creation, editing, testing, explicit saving, selection, deletion, Room persistence, encrypted per-profile credentials, selected-profile extraction snapshots, local fallback, and idempotent legacy migration.
 - ✅ Done: Restored the bundled LM Studio Gemma profile alongside user-created profiles on clean installs and upgrades after Pixel 7 validation exposed its absence. One-time bootstrap avoids selection changes, user-edit overwrites, and equivalent duplicates.
 - ✅ Done: The user successfully verified the multiple model-profile feature on a physical Pixel 7 on 2026-09-05.
+- ✅ Done: Added versioned bulk provider-configuration JSON export/import through Android's system document picker. Exports contain all saved remote-profile metadata and the selector snapshot but exclude credentials and internal aliases; imports provide validation and confirmation, atomically persist profiles, remap conflicting IDs, and preserve the current local selector/opt-in state. Focused unit coverage verifies the JSON contract, security boundary, import workflow, and Room bulk persistence. User-validated on a physical device on 2026-09-10.
 - ✅ Done: Updated and unit-tested both extraction prompts so matching itemized and finalized receipt documents produce one expense using the finalized amount including tax and tip; ambiguous pairs require `low_confidence` review.
+- ✅ Done: Separated the Main receipt workflow from Settings configuration with Navigation Compose. Added compact provider selection and saved-profile verification, local Gemma model-file readiness checks, a shared navigation-stable receipt workflow state holder, persisted preprocessing snapshots, and one derived OneDrive readiness rule. Focused Android unit tests and debug assembly pass, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 - Later: Prototype Google AI Edge API or LiteRT-LM integration on Android hardware. The platform-neutral parser/prompt spike, runtime pipeline, initial `Gemma 4 E2B` model selection, Android-facing adapter bridge, Android LiteRT-LM module wiring, workspace SDK configuration, and Android assembly verification are done; device execution is deferred.
 - Later: Verify whether receipt images can be passed directly to the selected local model path. Documentation confirms the API supports image content with multimodal models and a vision backend; actual selected model/device behavior remains unverified.
 - Later: If direct local image input is not practical, add an OCR/preprocessing step before LLM extraction.
@@ -44,7 +50,7 @@ Done when:
 
 ## Gap 2: Microsoft Graph OneDrive Handoff
 
-Status: Authentication, read-only verification, and paired normalized-receipt/Version 2 JSON export are implemented with passing Android unit tests. Real Entra registration and Pixel 7 end-to-end verification remain pending.
+Status: Authentication, read-only verification, paired normalized-receipt/Version 2 JSON export, real Entra debug registration, and deterministic matching debug signing are implemented with passing verification and Android unit tests. The user has validated OneDrive access and successful saving of the JSON handoff file on a physical device; interrupted-retry and reconnect/silent-restore validation remain.
 
 Problem:
 The Android app uses Microsoft Graph to upload a normalized receipt JPEG followed by its Version 2 JSON handoff. The remaining gap is physical-device validation with a real Entra registration.
@@ -54,10 +60,11 @@ Resolution path:
 - ✅ Done: Defined a personal-account Android public-client registration with delegated `Files.ReadWrite`, no client secret, single-account MSAL behavior, and debug/release redirect handling in `docs/microsoft-graph-OneDrive-plan.md`.
 - ✅ Done: Confirmed the OneDrive-relative handoff folder as `Documents/2_Others/Expenses_finance/logs`. Android must not store the local `D:\OneDrive` sync prefix.
 - ✅ Done: Confirmed normalized receipt JPEGs use `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM/YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg`.
-- In Progress: MSAL silent token acquisition and refresh handling are implemented; replace placeholder registration values and verify the flow on the Pixel 7.
+- In Progress: MSAL silent token acquisition and refresh handling are implemented, and the Entra Android debug registration is configured. OneDrive access and JSON-file saving have been validated on a physical device; verify silent restore, disconnect, reconnect, and interrupted retry.
+- ✅ Done: Fixed the Connect no-op caused by sandbox-specific debug signing. The build selects the stable host debug keystore (with explicit overrides available) and verifies its certificate against the MSAL JSON redirect and manifest callback before every debug build.
 - ✅ Done: Implemented image-first Graph upload using the authentication boundary, followed by temporary-name and final-name Version 2 JSON publication.
 - ✅ Done: Persist stable expense/export identity, normalized local JPEG, failure state, and paired paths so restart/retry cannot create duplicates.
-- Pending: Validate complete export and interrupted retry on the Pixel 7 with the real Entra registration.
+- Pending: Validate interrupted retry on the Pixel 7 with the real Entra registration.
 
 Done when:
 - A normalized receipt JPEG and its Version 2 handoff can be uploaded repeatedly to their target folders.

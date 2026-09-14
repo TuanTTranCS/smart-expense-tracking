@@ -1,6 +1,6 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-09-06
+Last updated: 2026-09-10
 
 ## Purpose
 
@@ -136,6 +136,22 @@ REQ-M-020: Migrating from the single-profile settings format shall preserve a va
 REQ-M-021: The app shall display the bundled LM Studio Gemma profile alongside user-created profiles on clean installs and upgrades, without automatically selecting it, overwriting edits, or creating an equivalent duplicate profile.
 
 REQ-M-022: When one input image or OCR text contains multiple receipt documents that clearly represent the same transaction, the extraction prompt shall produce one expense and set `totalAmount` to the finalized amount charged or payable, including tax and tip. The extraction shall not add together totals from those documents. It shall use `low_confidence` when the documents may represent different transactions or the finalized amount cannot be identified reliably.
+
+REQ-M-023: The app shall export all saved remote-provider profiles and the current selector snapshot to a versioned JSON file chosen through Android's system document picker. The export shall contain provider metadata only and shall never contain API keys, credential aliases, or database timestamps.
+
+REQ-M-024: The app shall validate and preview a provider-configuration JSON file before importing it. Import shall be atomic, preserve non-conflicting profile IDs, save conflicting IDs as new copies, generate local credential aliases, import no credentials, and leave the device's current provider selection and remote-provider opt-in unchanged.
+
+REQ-M-025: Provider-configuration export and import shall use Android's Storage Access Framework without broad storage permissions, allowing the user to choose Downloads or another document-provider location. Cancellation, invalid files, and document read/write failures shall not change saved provider profiles and shall provide a clear recovery message where applicable.
+
+REQ-UI-001: The Android app shall use separate Main and Settings destinations. Main shall contain only receipt-workflow controls plus Settings navigation chrome; Settings shall contain remote-provider opt-in, full profile management and transfer, and receipt-image preprocessing preferences, and shall not contain receipt import, review, or export controls.
+
+REQ-UI-002: Main shall provide compact selection of the local provider or an eligible saved remote profile, show the effective provider for the next extraction, and verify the selected provider without opening its editor. Local verification shall check the installed model file; remote verification shall use only saved metadata and its secure credential alias.
+
+REQ-UI-003: Main shall show OneDrive readiness with only the contextual connect, reconnect, or verify action needed for export. Routine disconnect shall not appear in the receipt workflow, and export eligibility shall derive from the same readiness rule as the displayed status.
+
+REQ-UI-004: Navigating between Main and Settings shall preserve receipt extraction, review, export, and retry state. Provider selection and image-preprocessing changes shall affect the next extraction and shall not mutate an operation already in flight.
+
+REQ-UI-005: System Back and Up from Settings shall return to the existing Main destination. If a profile editor contains unsaved metadata or an unsaved API key, Back or Up shall require explicit discard confirmation before closing the editor.
 
 ### Handoff File
 
@@ -393,6 +409,20 @@ AC-016: Retrying the same expense export reuses its image and JSON paths and doe
 AC-017: If the monthly receipt-image folder does not exist, the app creates it safely before upload; folder-creation failure leaves the export retryable and exposes no final JSON.
 
 AC-018: Given an itemized receipt without tax or tip and a finalized receipt for the same transaction with tax and tip, extraction returns one expense whose `totalAmount` is the finalized amount rather than the subtotal or the sum of both receipt totals. Ambiguous receipt pairs are flagged `low_confidence` for user review.
+
+AC-019: Exporting provider configuration produces a versioned `.json` document containing every saved remote profile and the selector snapshot, with no API-key value, credential alias, or persistence timestamp.
+
+AC-020: Importing a valid provider-configuration document displays a preview before mutation, imports every profile in one transaction, preserves non-conflicting IDs, remaps conflicting IDs, and leaves the current selection and remote-provider setting unchanged.
+
+AC-021: Cancelling either system picker or the import preview changes nothing; malformed, unsupported, empty, duplicate-ID, or invalid-profile JSON is rejected without partial persistence and with an actionable message.
+
+AC-022: Main shows compact provider selection and verification, contextual OneDrive readiness, receipt import, review, and export, while Settings shows provider configuration/transfer and image preprocessing without receipt-workflow content.
+
+AC-023: A Main → Settings → Main round trip retains the current receipt review and any in-flight extraction/export state, and repeated Settings activation creates no duplicate destination.
+
+AC-024: Verify checks the installed local Gemma model file when local is effective, or tests the selected saved remote profile without using an editor draft; changing selection while an operation runs does not change that operation's snapshot.
+
+AC-025: Settings Back/Up protects unsaved profile edits, and Main derives both its OneDrive message and export availability from one readiness rule with contextual recovery actions and no Disconnect action.
 
 ## Verified External References
 

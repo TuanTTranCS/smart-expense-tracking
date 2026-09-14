@@ -24,10 +24,18 @@ abstract class ModelProfileDao {
     abstract suspend fun upsertProfile(profile: ModelProfileEntity)
 
     @Upsert
+    protected abstract suspend fun upsertProfiles(profiles: List<ModelProfileEntity>)
+
+    @Upsert
     abstract suspend fun upsertSelectorState(state: ModelSelectorStateEntity)
 
     @Query("DELETE FROM model_profiles WHERE id = :id")
     protected abstract suspend fun deleteProfileRow(id: String)
+
+    @Transaction
+    open suspend fun upsertProfilesAtomically(profiles: List<ModelProfileEntity>) {
+        upsertProfiles(profiles)
+    }
 
     @Transaction
     open suspend fun deleteProfileAndClearSelection(id: String) {

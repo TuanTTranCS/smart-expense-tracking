@@ -1,8 +1,8 @@
 # Microsoft Graph Personal-Account Authentication Plan
 
-Last updated: 2026-09-06
+Last updated: 2026-09-09
 
-Status: In Progress. Authentication, read-only OneDrive verification, and the restart-safe paired receipt-image/Version 2 JSON export are implemented with focused unit coverage. An Entra application registration and physical-device export verification remain required before this workstream can be marked ✅ Done.
+Status: In Progress. Authentication, read-only OneDrive verification, and the restart-safe paired receipt-image/Version 2 JSON export are implemented with focused unit coverage. The Entra Android debug registration and deterministic debug signing are configured; physical-device authentication and export verification remain required before this workstream can be marked ✅ Done.
 
 ## Goal
 
@@ -29,7 +29,20 @@ Create an Android public-client registration in the Microsoft Entra admin center
 6. Add only the delegated Microsoft Graph permission `Files.ReadWrite`. Do not add application permissions, `Files.ReadWrite.All`, or a client secret.
 7. Before a release or Google Play build, add a separate Android platform redirect for every production signing certificate. Do not replace the debug redirect.
 
-The client ID and redirect URI are public application configuration, not credentials. The checked-in all-zero client ID and `REPLACE_WITH_...` redirect values intentionally keep authentication disabled until the real registration values are supplied.
+The client ID and redirect URI are public application configuration, not credentials. The configured debug registration uses the Android debug-signing redirect; production builds require a separate redirect for their signing certificate.
+
+### Deterministic Debug Signing
+
+The debug build selects its signing keystore in this order:
+
+1. Gradle property `smartExpense.debugKeystore`.
+2. Environment variable `SMART_EXPENSE_DEBUG_KEYSTORE`.
+3. The host Windows profile keystore at `%USERPROFILE%/.android/debug.keystore` when it exists.
+4. The Android Gradle Plugin default when none of the preceding values resolves a file.
+
+Optional Gradle properties or environment variables can override the keystore password, key alias, and key password with `smartExpense.debugKeystorePassword` / `SMART_EXPENSE_DEBUG_KEYSTORE_PASSWORD`, `smartExpense.debugKeyAlias` / `SMART_EXPENSE_DEBUG_KEY_ALIAS`, and `smartExpense.debugKeyPassword` / `SMART_EXPENSE_DEBUG_KEY_PASSWORD`. The conventional Android debug values remain the defaults. Do not commit keystores or password overrides.
+
+Every debug build runs `:android-app:verifyDebugMsalRedirectSignature` before compilation. It reads the selected keystore certificate and fails if its Base64 SHA-1 hash does not match both the URL-encoded `redirect_uri` in `auth_config_single_account.json` and the unencoded `BrowserTabActivity` path in `AndroidManifest.xml`. This prevents installing an APK that cannot start MSAL authentication.
 
 ## Android Implementation
 
@@ -93,7 +106,8 @@ The implementation must map authentication failures, rate limits, network failur
 - ✅ Done: Unit tests cover cached-account restoration, connect/disconnect, silent verification, interaction-required recovery, URL/path encoding, folder-facet validation, Graph status mapping, numeric `Retry-After`, and token redaction from returned errors.
 - ✅ Done: `:android-app:testDebugUnitTest` passes.
 - ✅ Done: `:android-app:assembleDebug` passes with MSAL `8.4.2`.
-- Pending: Replace the placeholder client ID and redirect values with the Entra-generated debug registration.
+- ✅ Done: Replaced the placeholder client ID and redirect values with the Entra-generated Android debug registration; `:android-app:testDebugUnitTest` and `:android-app:assembleDebug` pass on 2026-09-08.
+- ✅ Done: Fixed the 2026-09-09 no-op Connect failure caused by sandbox-specific debug signing. Debug builds now use the stable host keystore and automatically verify the APK certificate against both configured MSAL redirects. The verification task, Android unit tests, and debug assembly pass.
 - Pending: On the physical Pixel 7, connect a personal Microsoft account and approve delegated file access.
 - Pending: Verify the existing `logs` folder without creating or modifying OneDrive content.
 - Pending: Kill and restart the app, then verify silent account restoration and folder access without another prompt.

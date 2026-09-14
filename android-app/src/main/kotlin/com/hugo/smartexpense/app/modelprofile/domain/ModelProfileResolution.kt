@@ -26,6 +26,13 @@ class SelectedReceiptModelProviderResolver(
     suspend fun resolve(): ResolvedReceiptModelProvider {
         val profiles = repository.observeProfiles().first()
         val state = repository.observeSelectorState().first()
+        return resolve(profiles, state)
+    }
+
+    fun resolve(
+        profiles: List<ModelProfile>,
+        state: com.hugo.smartexpense.extraction.ModelProfileSelectorState,
+    ): ResolvedReceiptModelProvider {
         val selected = selector.select(
             ModelSelectorSettings(
                 localProvider = localProvider,
