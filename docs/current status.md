@@ -3,11 +3,11 @@
 - ✅ Done: Set the Android launcher label to `Smart Expense Tracking` and configured the supplied `images/smart-expense.png` as the launcher icon resource.
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
 
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 
 ## Overall Status
 
-The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
+The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11. The Windows Hermes/PowerShell design is now decision-complete in `docs/3.excel-update-hermes-goal.md`, but its scripts, tests, copied-workbook canary, and paused cron job are not yet implemented.
 
 ## Completed
 
@@ -75,6 +75,9 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 - Phase 1 integration spike planning and exploration.
 - Concrete Phase 1 plan: `docs/1.integration-plan.md`.
+- Windows implementation goal: `docs/3.excel-update-hermes-goal.md`. The confirmed design uses deterministic PowerShell, Excel COM, atomic local idempotency state, next-empty-row F/G/H mapping, missing-month and summary integration, conservative duplicate handling, CAD-only writes, and a paused script-only/no-agent Hermes canary.
+- The real workbook mapping was reviewed on 2026-09-14: monthly transactions begin at row 12; F stores amount, G stores merchant/date text, H is available for a receipt hyperlink, and E/O plus existing formulas and formatting must be preserved.
+- Windows scripts, unit tests, disposable-workbook integration tests, Discord canary verification, and cron creation remain pending. No live workbook or cron configuration has been changed.
 - Workstream 0 fixtures are now based on both synthetic and real receipt examples.
 - Workstream 1 Android extraction is API-first. Android Settings, secure key storage, saved-profile resolution, real HTTP transport, local readiness verification, and LiteRT-LM runtime selection are wired; physical-device LiteRT-LM execution remains.
 - Local-provider implementation is wired through the Android LiteRT-LM module when the pinned model exists in the app-private models directory. Device execution and performance remain unverified.
@@ -84,11 +87,7 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 - Confirm the real remote endpoints/models to use for device verification; profiles now support user-selectable direct-image or OCR-text input, normalized HTTP(S) base URLs, nonblank model IDs, and JSON object/schema output.
 - Confirm the exact Google AI Edge API or LiteRT-LM extraction path for receipt images after the API-provider spike.
 - Select the Android test device for the local extraction spike. The model target is now pinned to `Gemma 4 E2B`, and the workspace build is ready for device testing.
-- Confirm the meanings of Excel columns F and G in `Canada plan.xlsx`.
-- Confirm the desired action when a similar record already exists: skip, quarantine for review, or insert with a warning.
-- Confirm whether monthly sheets are created manually or by the PowerShell agent.
-- Confirm default currency and locale rules.
 
 ## Current Recommendation
 
-Continue Workstream 2 by exercising interrupted-export retry and reconnect/silent-restore behavior on the Pixel 7. Defer LiteRT-LM device execution until the paired Graph export path has been verified end-to-end, including retry behavior.
+Implement the Windows workflow from `docs/3.excel-update-hermes-goal.md` against fixtures and a disposable copy of the real workbook. Keep the Hermes job paused and the live workbook untouched until the copied-workbook and Discord canaries pass and the user separately approves activation. In parallel, the remaining Android device work is interrupted-export retry, reconnect/silent restore, and deferred LiteRT-LM execution validation.

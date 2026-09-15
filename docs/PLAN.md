@@ -1,6 +1,6 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 
 ## Stack Direction
 
@@ -18,9 +18,10 @@ Android app:
 Windows automation:
 
 - Hermes agent as scheduler/orchestrator
-- PowerShell action
-- Excel automation or Microsoft Graph workbook APIs depending on workbook access behavior
-- Local state file for idempotency, plus workbook-level duplicate checks
+- Deterministic PowerShell action running in Hermes script-only/no-agent mode
+- Desktop Excel COM for native workbook updates
+- Atomic local state under `%LOCALAPPDATA%`, plus workbook-level duplicate checks
+- Five-minute polling with quiet empty runs and concise Discord delivery for reportable outcomes
 
 Data exchange:
 
@@ -33,9 +34,12 @@ Excel integration:
 
 - Target workbook: `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`
 - Target sheet name: monthly `YYYY-MM`
-- Insert new expense rows after row 12.
-- Update columns F and G for inserted rows after their exact meanings are confirmed.
-- Detect similar existing records by date, shop/location/service, and amount before inserting.
+- Fill the first safe row from 12-100 where columns F and G are both empty; do not insert or reorder rows.
+- Map numeric amount to F, normalized merchant plus `MMM dd` receipt date to G, and a relative receipt-image hyperlink to H.
+- Preserve E, O, formulas, formatting, and unrelated workbook content.
+- Copy the latest earlier monthly sheet when needed, clear only F:H rows 12-100, and extend `Food Expense Summary` using its existing 89-row monthly detail pattern.
+- Skip exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts.
+- Accept CAD only; quarantine other currencies without conversion.
 
 ## Architecture
 
@@ -87,9 +91,9 @@ Goals:
 - Prototype receipt extraction, including whether OCR/preprocessing is required.
 - ✅ Done: Implement and unit-test paired Microsoft Graph upload from Android: receipt JPEG first, then the final JSON handoff. Physical-device verification remains.
 - ✅ Done: Make Android debug signing use the stable host debug keystore and fail debug builds when the APK certificate does not match the configured MSAL JSON and manifest redirects.
-- Verify Hermes can run the required PowerShell action.
-- Verify row insertion after row 12 in `Canada plan.xlsx` against a copy of the real workbook.
-- Verify duplicate/similar-record detection against the monthly sheet.
+- Implement and verify the Hermes/PowerShell contract in `docs/3.excel-update-hermes-goal.md`.
+- Verify next-empty-row mapping, monthly-sheet creation, and summary integration against a disposable copy of the real workbook.
+- Verify state-based idempotency, exact duplicate skipping, and similar-record quarantine against the monthly sheet.
 
 ### Phase 2: Android MVP
 
@@ -131,20 +135,22 @@ Status: Pending
 
 Goals:
 
-- Poll handoff folder every 5 minutes.
-- Validate JSON files.
-- De-duplicate by expenseId.
-- Check for similar date/shop/location/amount records.
-- Insert row after row 12 in the `YYYY-MM` monthly worksheet.
-- Update columns F and G according to the confirmed mapping.
-- Archive processed files and quarantine failures.
+- Run a deterministic PowerShell processor every 5 minutes through a Hermes script-only/no-agent job.
+- Validate final Version 2 JSON files, filename correlation, paired local receipt images, accepted extraction status, and CAD currency.
+- De-duplicate by atomic local expense-id state and conservative workbook matching.
+- Skip exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts.
+- Fill the first safe F/G row from 12-100 in the `YYYY-MM` worksheet, with the amount in F, merchant/date in G, and relative image hyperlink in H.
+- Create a missing monthly sheet by copying the latest earlier month and extend `Food Expense Summary` only when its known structure validates.
+- Preserve valid handoffs when Excel is locked, read-only, full, or structurally unexpected.
+- Archive successful and exact-duplicate files; quarantine ambiguous and invalid files with actionable reasons.
+- Create the five-minute Discord-delivery job paused after a copied-workbook canary; live activation requires separate approval.
 
 Testing:
 
-- Unit tests for schema validation.
-- Unit tests for Excel row mapping.
-- Unit tests for idempotency.
-- Integration test using a sample workbook.
+- Unit tests for Version 2 validation, path safety, mapping, row selection, duplicate classification, state atomicity, routing, and Hermes output.
+- Copied-workbook Excel COM tests for insertion, hyperlink behavior, native-content preservation, missing-month creation, and summary extension.
+- Recovery tests for workbook locks, full transaction ranges, save/state/archive failures, and idempotent reruns.
+- Paused Hermes canary using disposable inbox and workbook paths, including Discord delivery verification.
 
 ### Phase 4: Optional External Receipt Photo Link
 

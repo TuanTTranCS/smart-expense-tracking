@@ -1,6 +1,6 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 
 ## Cross-Cutting Android Branding
 
@@ -73,45 +73,50 @@ Done when:
 
 ## Gap 3: Hermes PowerShell Action
 
-Status: Phase 1 spike planned in `docs/1.integration-plan.md`
+Status: Design resolved in `docs/3.excel-update-hermes-goal.md`; implementation, tests, and paused canary pending
 
 Problem:
-Hermes will run the Windows automation through PowerShell. The exact script contract, state handling, and credentials need to be defined.
+Hermes will run the Windows automation through PowerShell. The contract is now defined, but the deterministic processor, tests, and safe rollout still need implementation.
 
 Resolution path:
-- Define PowerShell script input parameters.
-- Confirm how Hermes stores credentials and state.
-- Confirm whether Hermes has access to the local OneDrive sync path.
-- Confirm polling configuration and logging behavior.
-- Decide whether the PowerShell script uses Excel COM automation, ImportExcel/ClosedXML-style manipulation, or Microsoft Graph workbook APIs.
+- Implement the parameterized entry point, reusable functions, dry-run support, structured output, and redacted JSON Lines log from `docs/3.excel-update-hermes-goal.md`.
+- Auto-detect the local OneDrive root and keep atomic expense-id state under `%LOCALAPPDATA%\SmartExpenseTracking\Hermes`; no Graph credentials are required on Windows.
+- Prevent overlapping runs and process direct-child final Version 2 JSON files in ordinal filename order.
+- Route inserted/exact-duplicate files to `receipt_jsons_done`, ambiguous/non-CAD files to `receipt_jsons_review`, and invalid files to `receipt_jsons_error` with reasons.
+- Use a Hermes script-only/no-agent job every five minutes, suppress empty-run delivery, and deliver concise reportable outcomes to the configured Discord home channel.
+- Create the job paused only after tests and a disposable-workbook canary pass. Live activation requires separate approval.
 
 Done when:
-- A minimal Hermes PowerShell action can read a sample handoff file.
-- Processing state survives restart.
-- Unit tests cover idempotency logic outside Hermes-specific scheduling.
+- The PowerShell action validates and classifies Version 2 fixtures without an LLM.
+- Processing state and duplicate protection survive restart and partial post-save failures.
+- Unit tests cover path resolution, validation, routing, output, and idempotency outside Hermes scheduling.
+- A paused five-minute job exists and a disposable-path manual run has delivered the expected Discord result.
 
 ## Gap 4: Excel Workbook Mapping
 
-Status: Phase 1 spike planned in `docs/1.integration-plan.md`
+Status: Real-workbook mapping and Excel COM mechanism confirmed; implementation and copied-workbook verification pending
 
 Problem:
-The workbook path, monthly sheet pattern, row insertion point, and duplicate matching criteria are partially defined. The column meanings and duplicate action still need confirmation.
+The workbook contract is confirmed. The remaining work is to implement and verify it without damaging the live workbook or its native formulas, formatting, and summary logic.
 
 Resolution path:
 - Use workbook path `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`.
 - Select monthly worksheet by receipt date using `YYYY-MM`.
-- Insert a new row after row 12.
-- Confirm what values belong in columns F and G.
-- Confirm where receipt date, merchant/shop/service, location, and amount are stored or compared.
-- Define similar-record behavior for same date, amount, shop/service, and location.
-- Verify the update mechanism against a copy of the real workbook.
+- Use Excel COM and the first row from 12-100 where F and G are both empty; do not insert, reorder, or overwrite rows.
+- Write numeric amount to F, normalized merchant plus invariant English `MMM dd` to G, and a relative receipt-image hyperlink to H.
+- Preserve E, O, formulas, formatting, and unrelated cells; safely extend the established row pattern only when required.
+- Copy the latest earlier monthly sheet when the target is missing, retain rows 1-11 and non-transaction structure, and clear only F:H rows 12-100.
+- Add missing future months to the validated `Food Expense Summary` structure by extending its 89-row detail block, monthly summary, ranges, coverage checks, and title.
+- Skip/archive exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts without fuzzy or LLM matching.
+- Accept CAD only and defer safely when Excel is locked, read-only, full, unavailable, or structurally unexpected.
+- Verify every behavior against disposable copies of the real workbook.
 
 Done when:
-- A sample handoff file inserts exactly one row after row 12 in a copied workbook.
-- Columns F and G are populated according to the confirmed mapping.
-- Duplicate expense ids are skipped.
-- Similar records are detected and handled using the chosen rule.
-- Unit tests cover mapping and duplicate detection.
+- A sample Version 2 handoff fills exactly one safe row in a copied workbook with the confirmed F/G/H mapping.
+- E, O, formulas, formatting, sheet objects, and unrelated cells remain intact after save and reopen.
+- Missing-month creation and `Food Expense Summary` extension pass the coverage check.
+- Duplicate expense IDs and exact workbook duplicates are skipped; similar records are quarantined.
+- Unit and copied-workbook integration tests cover mapping, duplicate detection, capacity, locks, and failure recovery.
 
 ## Gap 5: Receipt Image and Optional Photo Link
 
@@ -127,6 +132,7 @@ Resolution path:
 - ✅ Done: Resolve or create the monthly folder hierarchy idempotently before upload.
 - ✅ Done: Add required Version 2 field `receiptImageRelativePath` to correlate the handoff with its image.
 - ✅ Done: Upload the image before publishing the final JSON and reuse both deterministic paths on retry.
+- Pending: Write a relative clickable link to the normalized OneDrive image in Excel column H as part of Gap 4.
 - Keep receiptPhotoLink optional in the schema.
 
 Done when:

@@ -1,6 +1,6 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-09-10
+Last updated: 2026-09-14
 
 ## Purpose
 
@@ -155,7 +155,7 @@ REQ-UI-005: System Back and Up from Settings shall return to the existing Main d
 
 ### Handoff File
 
-REQ-H-001: The handoff format shall be JSON, even if the file extension remains `.txt` for operational convenience.
+REQ-H-001: The handoff format and final file extension shall be JSON (`.json`). Temporary or incomplete uploads shall use a non-JSON extension such as `.uploading`.
 
 REQ-H-002: The handoff file shall include these required fields:
 - schemaVersion
@@ -197,21 +197,29 @@ REQ-H-007: A final handoff JSON shall be a commit marker for the paired export: 
 
 REQ-W-001: The Hermes agent shall poll the configured OneDrive handoff folder every 5 minutes.
 
-REQ-W-002: The Hermes agent shall process only complete handoff files.
+REQ-W-002: The Hermes agent shall inspect only the handoff folder's direct children and process only complete files whose names match `expense_yyyyMMdd_HHmmss_<shortExpenseId>.json`; temporary extensions and archive subfolders shall be ignored.
 
 REQ-W-003: The Hermes agent shall skip already processed expense ids.
 
-REQ-W-004: The Hermes agent shall validate the handoff file schema before updating Excel.
+REQ-W-004: The PowerShell action shall validate the Version 2 schema, filename/expense-id correlation, deterministic receipt-image path, paired local image existence, accepted extraction status, and CAD currency before updating Excel.
 
 REQ-W-005: The Hermes agent shall log success and failure for each handoff file.
 
-REQ-W-006: The Hermes agent shall move successful files to a processed/archive folder or mark them as processed.
+REQ-W-006: The PowerShell action shall record successful inserts and exact workbook duplicates in local idempotency state, then move their handoff files to `receipt_jsons_done`.
 
-REQ-W-007: The Hermes agent shall move invalid or failed files to a review/error folder with a reason.
+REQ-W-007: The PowerShell action shall move ambiguous or non-CAD files to `receipt_jsons_review`, move invalid files to `receipt_jsons_error`, and retain an actionable sidecar reason without logging the full receipt payload.
 
 REQ-W-008: The Hermes agent shall run the workbook update action through PowerShell.
 
-REQ-W-009: The PowerShell action shall maintain processing state for idempotency, either in a state file, the workbook, or both.
+REQ-W-009: The PowerShell action shall maintain atomic expense-id state under `%LOCALAPPDATA%\SmartExpenseTracking\Hermes` and combine it with workbook-level exact duplicate checks for restart-safe idempotency.
+
+REQ-W-010: Normal polling, parsing, routing, duplicate detection, and workbook writes shall be deterministic code paths and shall not require an LLM. An LLM may explain a quarantined result but shall not approve an automatic financial write.
+
+REQ-W-011: The scheduled Hermes job shall run in script-only/no-agent mode, emit `[SILENT]` when no final handoff is present, and deliver a concise deterministic status to the configured Discord home channel when a run has an outcome to report.
+
+REQ-W-012: The Windows processor shall prevent overlapping runs and shall process eligible handoff files in ordinal filename order.
+
+REQ-W-013: The production Hermes job shall be created paused after unit tests and a disposable-workbook canary pass. Enabling it against the live workbook shall require separate user approval.
 
 ### Excel Update
 
@@ -225,34 +233,40 @@ D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx
 
 REQ-X-003: The target worksheet shall be selected by receipt month using `YYYY-MM` format.
 
-REQ-X-004: If the target monthly worksheet does not exist, the agent shall follow a defined recovery behavior before writing. The preferred recovery behavior is to create or copy the monthly sheet from an approved template, but this requires confirmation.
+REQ-X-004: If the target monthly worksheet does not exist, the PowerShell action shall copy the latest valid earlier monthly sheet through Excel COM, rename and position it chronologically, preserve rows 1-11 and all non-transaction workbook structure, and clear only F:H in rows 12-100. If no safe source sheet exists or validation fails, it shall leave the handoff for review without saving.
 
 REQ-X-005: The Windows side shall add one expense row per accepted handoff file.
 
-REQ-X-006: The agent shall insert the new expense row after row 12 in the selected monthly worksheet, while preserving the workbook's existing formulas, formatting, and layout.
+REQ-X-006: The PowerShell action shall use the first row from 12 through 100 where both F and G are empty. It shall not insert or reorder rows, overwrite a partially populated row, or disturb existing formulas, formatting, and layout.
 
-REQ-X-007: The agent shall update columns F and G for the inserted row.
+REQ-X-007: For an accepted handoff, the action shall write numeric `totalAmount` to F, write `<merchant> MMM dd` to G using invariant English dates and the approved `Supermarket` to `Mart` wording rule, and add a relative clickable receipt-image hyperlink in H.
 
-REQ-X-008: The exact mapping for columns F and G shall be confirmed before implementation.
+REQ-X-008: The action shall preserve column E, column O's row formula, and all unrelated cells. If a selected row lacks the established transaction formatting or row-relative formula pattern, the action shall extend the pattern without copying another transaction's values and shall abort if it cannot do so safely.
 
-REQ-X-009: Before inserting a row, the agent shall check for similar existing records using at least:
+REQ-X-009: Before writing a row, the action shall check for existing records using:
 - receipt date
-- merchant/shop/service name
-- total amount
+- normalized merchant/shop/service name
+- total amount rounded to two fractional digits
 
-REQ-X-010: When a similar record is found, the agent shall not silently add a duplicate. It shall either skip, quarantine for review, or apply a user-approved duplicate rule.
+REQ-X-010: A matching receipt date, amount, and normalized merchant shall be treated as an exact workbook duplicate and archived without insertion. A matching date and amount with a different merchant shall be quarantined for review without changing the workbook. Fuzzy or LLM-based automatic duplicate decisions are not allowed.
 
-REQ-X-011: The implementation shall define deterministic mapping from handoff fields to workbook columns before coding.
+REQ-X-011: The mapping and duplicate logic shall parse a legacy workbook date only from an unambiguous trailing English `MMM d` or `MMM dd` suffix whose month matches the worksheet; it shall not guess from free text or multiple-date descriptions.
 
 REQ-X-012: The update mechanism shall prevent duplicate rows for the same expense id.
 
 REQ-X-013: If Excel is open or locked, the agent shall retry or fail gracefully without losing the handoff file.
 
+REQ-X-014: The production workbook write shall use desktop Excel COM and save once per successful batch. A locked, read-only, unavailable, full, or structurally unexpected workbook shall leave valid handoffs in the inbox and shall not record them as processed.
+
+REQ-X-015: When a target month later than the latest month in `Food Expense Summary` is missing from that summary, the action shall append its 89-row source-detail block for rows 12-100, add the monthly summary row before `Accumulated`, extend summary and coverage formulas, update the title, and require the coverage status to remain `OK` before saving.
+
+REQ-X-016: The action shall not silently add an out-of-order summary month, bridge a chronological gap, or repair an unfamiliar summary structure.
+
 ## Optional Requirements
 
 REQ-O-001: The app may include a receipt photo link if the user can obtain one from Amazon Photos or another existing backup flow.
 
-REQ-O-002: The Excel row may include a receipt photo link.
+REQ-O-002: A future enhancement may add or substitute a stable external `receiptPhotoLink`; the MVP Excel row uses the required relative OneDrive receipt-image hyperlink from REQ-X-007.
 
 REQ-O-003: Amazon Photos linking is optional and shall be implemented only if a reliable, user-authorized way to obtain stable share links is confirmed.
 
@@ -305,7 +319,7 @@ NFR-008: Paired receipt-image and JSON export shall be restart-safe and idempote
 }
 ```
 
-## Key Design Decisions Needed
+## Key Design Decisions
 
 DEC-001: Confirm the exact Android local extraction path.
 
@@ -338,37 +352,30 @@ Needed details:
 - target OneDrive folder path
 - token storage and refresh behavior
 
-DEC-003: Confirm PowerShell execution details for Hermes.
+DEC-003: Hermes PowerShell execution contract.
 
-Needed details:
-- Can Hermes keep local state?
-- Can Hermes access the synced OneDrive path?
-- Can Hermes use Microsoft Graph credentials?
+Decision: Hermes will run a deterministic PowerShell action from a script-only/no-agent five-minute cron job. The action will auto-detect the local OneDrive sync root, store atomic idempotency state under `%LOCALAPPDATA%\SmartExpenseTracking\Hermes`, and use the local sync path rather than Microsoft Graph credentials. The job will be created paused after a disposable-workbook canary and will deliver non-empty results to the configured Discord home channel.
 
-DEC-004: Confirm the Excel workbook mapping.
+DEC-004: Excel workbook mapping.
 
-Known details:
+Decision:
 - workbook path: `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`
 - monthly worksheet name pattern: `YYYY-MM`
-- insertion point: after row 12
-- columns to update: F and G
+- transaction destination: first row from 12-100 where F and G are both empty; do not insert or overwrite rows
+- F: numeric total amount
+- G: normalized merchant plus invariant English `MMM dd` receipt date
+- H: relative clickable link to the normalized OneDrive receipt image
+- E, O, formulas, formatting, and unrelated cells: preserve
+- missing month: copy the latest earlier monthly sheet, clear only F:H rows 12-100, validate, and integrate the month into `Food Expense Summary`
+- exact date/amount/normalized-merchant duplicate: skip and archive
+- same-date/same-amount merchant conflict: quarantine for review
+- write mechanism: desktop Excel COM
 
-Still needed:
-- what values go into columns F and G
-- whether date/merchant/amount are stored elsewhere on the row
-- exact duplicate/similar-record action: skip, ask for review, or add with a warning
-- whether monthly sheets are created manually or by the agent
-- whether the workbook contains protected sheets, formulas, tables, or pivot tables affected by row insertion
+DEC-005: Currency and locale rules.
 
-DEC-005: Confirm currency and locale rules.
+Decision: accept CAD handoffs only, store the amount as a numeric decimal value, format the column G date with invariant English `MMM dd`, and quarantine non-CAD handoffs without conversion or workbook mutation.
 
-Needed details:
-- default currency
-- date format
-- decimal separator expectations
-- multi-currency handling
-
-DEC-006: Confirm receipt image and photo-link behavior.
+DEC-006: Receipt image and photo-link behavior.
 
 Decision: upload a normalized JPEG below 200 KB to OneDrive for every exported expense before publishing its final JSON. Amazon Photos may remain the full-resolution backup, and external `receiptPhotoLink` values remain optional.
 
@@ -380,13 +387,13 @@ AC-002: The handoff file validates against the agreed schema.
 
 AC-003: The Windows agent detects the handoff file within one polling cycle after OneDrive sync completes.
 
-AC-004: The Excel workbook receives exactly one row for the expense.
+AC-004: An accepted CAD handoff fills exactly one safe row from 12-100 in the correct monthly sheet, with numeric amount in F, merchant/date text in G, and a working relative receipt-image hyperlink in H while existing E/O behavior and unrelated workbook content remain intact.
 
 AC-005: Reprocessing the same handoff file does not create a duplicate row.
 
-AC-006: Invalid handoff files are preserved for review and do not corrupt the workbook.
+AC-006: Invalid handoff files are preserved in `receipt_jsons_error`, ambiguous and non-CAD files are preserved in `receipt_jsons_review`, each has an actionable reason, and neither changes the workbook.
 
-AC-007: The workflow still succeeds when the receipt photo link is absent.
+AC-007: The workflow still succeeds when the optional external `receiptPhotoLink` is absent because the required `receiptImageRelativePath` supplies the Excel hyperlink target.
 
 AC-008: A user can open Settings, select the local provider or a configured OpenAI-compatible provider, choose a model id, and see which provider will be used for the next extraction.
 
@@ -424,6 +431,14 @@ AC-024: Verify checks the installed local Gemma model file when local is effecti
 
 AC-025: Settings Back/Up protects unsaved profile edits, and Main derives both its OneDrive message and export availability from one readiness rule with contextual recovery actions and no Disconnect action.
 
+AC-026: When a future monthly sheet is absent, the processor can copy the latest earlier month, clear only its transaction cells, add the receipt, extend `Food Expense Summary`, and reopen the copied workbook with the summary coverage status still `OK`.
+
+AC-027: When the workbook is open, locked, read-only, full, unavailable, or structurally unexpected, valid handoffs remain in the inbox for retry and no processed state is recorded.
+
+AC-028: A quiet five-minute run emits `[SILENT]`; a run with reportable outcomes emits a concise deterministic status suitable for direct Discord delivery without invoking an LLM.
+
+AC-029: Unit tests and a disposable-workbook Excel COM canary pass before the Hermes job is created, and that job remains paused until the user separately approves live activation.
+
 ## Verified External References
 
 - Android Photo Picker: https://developer.android.com/training/data-storage/shared/photo-picker
@@ -433,3 +448,4 @@ AC-025: Settings Back/Up protects unsaved profile edits, and Main derives both i
 - Google AI Edge LiteRT-LM: https://developers.google.com/edge/litert-lm
 - Google AI Edge LiteRT-LM for Android: https://developers.google.com/edge/litert-lm/android
 - Microsoft Graph Excel table row API: https://learn.microsoft.com/en-us/graph/api/table-post-rows
+- Hermes scheduled tasks: https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/cron.md
