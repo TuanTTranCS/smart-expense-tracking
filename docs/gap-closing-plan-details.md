@@ -73,10 +73,10 @@ Done when:
 
 ## Gap 3: Hermes PowerShell Action
 
-Status: Design resolved in `docs/3.excel-update-hermes-goal.md`; implementation, tests, and paused canary pending
+Status: ✅ Done; production job is active after separate live-activation approval.
 
 Problem:
-Hermes will run the Windows automation through PowerShell. The contract is now defined, but the deterministic processor, tests, and safe rollout still need implementation.
+Hermes runs the Windows automation through PowerShell. The deterministic processor, disposable-workbook verification, scheduling, and Discord canary are complete; the production job is active.
 
 Resolution path:
 - Implement the parameterized entry point, reusable functions, dry-run support, structured output, and redacted JSON Lines log from `docs/3.excel-update-hermes-goal.md`.
@@ -84,23 +84,23 @@ Resolution path:
 - Prevent overlapping runs and process direct-child final Version 2 JSON files in ordinal filename order.
 - Route inserted/exact-duplicate files to `receipt_jsons_done`, ambiguous/non-CAD files to `receipt_jsons_review`, and invalid files to `receipt_jsons_error` with reasons.
 - Use a Hermes script-only/no-agent job every five minutes, suppress empty-run delivery, and deliver concise reportable outcomes to the configured Discord home channel.
-- Create the job paused only after tests and a disposable-workbook canary pass. Live activation requires separate approval.
+- Create the job paused only after tests and a disposable-workbook canary pass; activate it only after separate user approval. The approval has been granted and the job is active.
 
 Done when:
-- The PowerShell action validates and classifies Version 2 fixtures without an LLM.
-- Processing state and duplicate protection survive restart and partial post-save failures.
-- Unit tests cover path resolution, validation, routing, output, and idempotency outside Hermes scheduling.
-- A paused five-minute job exists and a disposable-path manual run has delivered the expected Discord result.
+- ✅ The PowerShell action validates and classifies Version 2 fixtures without an LLM.
+- ✅ Processing state and duplicate protection survive restart and partial post-save failures.
+- ✅ Unit tests cover path resolution, validation, routing, output, and idempotency outside Hermes scheduling.
+- ✅ Paused job `f6934b4a04fe` is configured every five minutes in no-agent mode for Discord channel `1549288366992793652`; disposable delivery was read back as message `1549441490327965807`.
 
 ## Gap 4: Excel Workbook Mapping
 
-Status: Real-workbook mapping and Excel COM mechanism confirmed; implementation and copied-workbook verification pending
+Status: Excel COM implementation and copied-workbook verification ✅ Done
 
 Problem:
 The workbook contract is confirmed. The remaining work is to implement and verify it without damaging the live workbook or its native formulas, formatting, and summary logic.
 
 Resolution path:
-- Use workbook path `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`.
+- Use workbook path `D:\Users\tuant\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`; copy it to a disposable tree for tests.
 - Select monthly worksheet by receipt date using `YYYY-MM`.
 - Use Excel COM and the first row from 12-100 where F and G are both empty; do not insert, reorder, or overwrite rows.
 - Write numeric amount to F, normalized merchant plus invariant English `MMM dd` to G, and a relative receipt-image hyperlink to H.
@@ -112,11 +112,11 @@ Resolution path:
 - Verify every behavior against disposable copies of the real workbook.
 
 Done when:
-- A sample Version 2 handoff fills exactly one safe row in a copied workbook with the confirmed F/G/H mapping.
-- E, O, formulas, formatting, sheet objects, and unrelated cells remain intact after save and reopen.
-- Missing-month creation and `Food Expense Summary` extension pass the coverage check.
-- Duplicate expense IDs and exact workbook duplicates are skipped; similar records are quarantined.
-- Unit and copied-workbook integration tests cover mapping, duplicate detection, capacity, locks, and failure recovery.
+- ✅ A sample Version 2 handoff fills exactly one safe row in a copied workbook with the confirmed F/G/H mapping.
+- ✅ E, O, formulas, formatting, sheet objects, and unrelated cells remain intact after save and reopen.
+- ✅ Missing-month creation and `Food Expense Summary` extension pass the coverage check.
+- ✅ Duplicate expense IDs and exact workbook duplicates are skipped; similar records are quarantined.
+- ✅ Unit and copied-workbook integration tests cover mapping, duplicate detection, capacity, read-only/deferred paths, and failure recovery seams.
 
 ## Gap 5: Receipt Image and Optional Photo Link
 

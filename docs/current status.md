@@ -75,9 +75,9 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 - Phase 1 integration spike planning and exploration.
 - Concrete Phase 1 plan: `docs/1.integration-plan.md`.
-- Windows implementation goal: `docs/3.excel-update-hermes-goal.md`. The confirmed design uses deterministic PowerShell, Excel COM, atomic local idempotency state, next-empty-row F/G/H mapping, missing-month and summary integration, conservative duplicate handling, CAD-only writes, and a paused script-only/no-agent Hermes canary.
+- Windows implementation goal: `docs/3.excel-update-hermes-goal.md`. The confirmed design uses deterministic PowerShell, Excel COM, atomic local idempotency state, next-empty-row F/G/H mapping, missing-month and summary integration, conservative duplicate handling, CAD-only writes, and a live script-only/no-agent Hermes job.
 - The real workbook mapping was reviewed on 2026-09-14: monthly transactions begin at row 12; F stores amount, G stores merchant/date text, H is available for a receipt hyperlink, and E/O plus existing formulas and formatting must be preserved.
-- Windows scripts, unit tests, disposable-workbook integration tests, Discord canary verification, and cron creation remain pending. No live workbook or cron configuration has been changed.
+- ✅ Done: Windows processor implementation and copied-workbook COM verification passed on 2026-09-16 with 100 assertions. The source workbook is `D:\Users\tuant\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`; automated write tests use disposable copies. Hugo also completed a controlled manual non-dry-run test against the live workbook and restored the workbook afterward; a subsequent live-tree dry run found no pending handoffs and left its SHA-256 unchanged. Active job `f6934b4a04fe` runs every five minutes in script-only/no-agent mode, targets Discord channel `1549288366992793652`, and is pinned to `gpt-5.6-luna` with high reasoning. Disposable-path delivery was verified by reading back Discord message `1549441490327965807`; the temporary override was removed.
 - Workstream 0 fixtures are now based on both synthetic and real receipt examples.
 - Workstream 1 Android extraction is API-first. Android Settings, secure key storage, saved-profile resolution, real HTTP transport, local readiness verification, and LiteRT-LM runtime selection are wired; physical-device LiteRT-LM execution remains.
 - Local-provider implementation is wired through the Android LiteRT-LM module when the pinned model exists in the app-private models directory. Device execution and performance remain unverified.
@@ -90,4 +90,4 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 ## Current Recommendation
 
-Implement the Windows workflow from `docs/3.excel-update-hermes-goal.md` against fixtures and a disposable copy of the real workbook. Keep the Hermes job paused and the live workbook untouched until the copied-workbook and Discord canaries pass and the user separately approves activation. In parallel, the remaining Android device work is interrupted-export retry, reconnect/silent restore, and deferred LiteRT-LM execution validation.
+Keep the verified Windows job paused until separate approval is given to activate production polling against the live workbook. In parallel, the remaining Android device work is interrupted-export retry, reconnect/silent restore, and deferred LiteRT-LM execution validation.

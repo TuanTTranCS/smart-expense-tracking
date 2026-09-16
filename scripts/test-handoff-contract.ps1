@@ -30,7 +30,7 @@ function Test-HandoffPayload {
         [object]$Payload
     )
 
-    Assert-Condition ($Payload.schemaVersion -eq 1) 'schemaVersion must be 1.'
+    Assert-Condition ($Payload.schemaVersion -in 1, 2) 'schemaVersion must be 1 or 2.'
 
     Test-RequiredString $Payload.expenseId 'expenseId'
     Test-RequiredString $Payload.createdAt 'createdAt'
@@ -64,6 +64,14 @@ function Test-HandoffPayload {
             Assert-Condition ([decimal]$Payload.$field -ge 0) "$field must be non-negative."
         }
     }
+
+    if ($Payload.schemaVersion -eq 2) {
+        Test-RequiredString $Payload.receiptImageRelativePath 'receiptImageRelativePath'
+        $shortExpenseId = ([string]$Payload.expenseId).Replace('-', '').Substring(0, 8).ToLowerInvariant()
+        $created = [DateTimeOffset]::Parse([string]$Payload.createdAt, [Globalization.CultureInfo]::InvariantCulture)
+        $expected = "Documents/2_Others/Expenses_finance/receipt_images/$($created.ToString('yyyy-MM'))/$($created.ToString('yyyyMMdd_HHmmss'))_receipt_$shortExpenseId.jpg"
+        Assert-Condition ($Payload.receiptImageRelativePath -ceq $expected) 'receiptImageRelativePath must be deterministic.'
+    }
 }
 
 function Test-HandoffFileName {
@@ -80,7 +88,7 @@ function Test-HandoffFileName {
 
 function Read-HandoffJson {
     param([string]$Path)
-    Get-Content -Raw -Path $Path | ConvertFrom-Json
+    Get-Content -Raw -Path $Path | ConvertFrom-Json -DateKind String
 }
 
 $validFiles = Get-ChildItem -Path $validDir -Filter '*.json' -File

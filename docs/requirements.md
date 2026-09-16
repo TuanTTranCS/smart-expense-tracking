@@ -354,7 +354,7 @@ Needed details:
 
 DEC-003: Hermes PowerShell execution contract.
 
-Decision: Hermes will run a deterministic PowerShell action from a script-only/no-agent five-minute cron job. The action will auto-detect the local OneDrive sync root, store atomic idempotency state under `%LOCALAPPDATA%\SmartExpenseTracking\Hermes`, and use the local sync path rather than Microsoft Graph credentials. The job will be created paused after a disposable-workbook canary and will deliver non-empty results to the configured Discord home channel.
+Decision: Hermes runs a deterministic PowerShell action from a script-only/no-agent five-minute cron job. The action auto-detects the local OneDrive sync root, stores atomic idempotency state under `%LOCALAPPDATA%\SmartExpenseTracking\Hermes`, and uses the local sync path rather than Microsoft Graph credentials. The job was created paused after a disposable-workbook canary, then activated after Hugo's separate approval; it delivers non-empty results to the configured Discord home channel.
 
 DEC-004: Excel workbook mapping.
 
@@ -438,6 +438,12 @@ AC-027: When the workbook is open, locked, read-only, full, unavailable, or stru
 AC-028: A quiet five-minute run emits `[SILENT]`; a run with reportable outcomes emits a concise deterministic status suitable for direct Discord delivery without invoking an LLM.
 
 AC-029: Unit tests and a disposable-workbook Excel COM canary pass before the Hermes job is created, and that job remains paused until the user separately approves live activation.
+
+## Windows implementation verification
+
+Verified 2026-09-16 with `pwsh -NoLogo -NoProfile -NonInteractive -File scripts/test-hermes-excel-update.ps1` (100 assertions plus copied-workbook Excel COM canaries) and `pwsh -NoLogo -NoProfile -NonInteractive -File scripts/test-handoff-contract.ps1`. REQ-W-002..010 and REQ-W-012, REQ-X-001..016, and AC-026..028 are implemented in `scripts/SmartExpense.Excel.psm1` and `scripts/Invoke-HermesExcelUpdate.ps1`. The source workbook at `D:\Users\tuant\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx` is copied to disposable temp trees for automated integration tests. Hugo separately completed a controlled manual non-dry-run test against the live workbook and restored it; the follow-up dry run returned `no_work` and preserved its SHA-256.
+
+REQ-W-001, REQ-W-011, REQ-W-013, and the scheduling portion of AC-029 are configured by active job `f6934b4a04fe`: `every 5m`, script-only/no-agent, Discord channel `1549288366992793652`, `gpt-5.6-luna`, high reasoning. A disposable-path run was delivered and read back as Discord message `1549441490327965807`. Hugo separately approved live activation; the scheduler and gateway are running, and the job's most recent run completed successfully.
 
 ## Verified External References
 

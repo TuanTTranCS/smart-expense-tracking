@@ -32,7 +32,7 @@ Data exchange:
 
 Excel integration:
 
-- Target workbook: `D:\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx`
+- Target workbook: `D:\Users\tuant\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx` (tests copy it before any write)
 - Target sheet name: monthly `YYYY-MM`
 - Fill the first safe row from 12-100 where columns F and G are both empty; do not insert or reorder rows.
 - Map numeric amount to F, normalized merchant plus `MMM dd` receipt date to G, and a relative receipt-image hyperlink to H.
@@ -97,7 +97,7 @@ Goals:
 
 ### Phase 2: Android MVP
 
-Status: Pending
+Status: In Progress
 
 Goals:
 
@@ -131,26 +131,26 @@ Testing:
 
 ### Phase 3: Windows Agent MVP
 
-Status: Pending
+Status: ✅ Done (production job active after Hugo's separate live-activation approval)
 
 Goals:
 
-- Run a deterministic PowerShell processor every 5 minutes through a Hermes script-only/no-agent job.
-- Validate final Version 2 JSON files, filename correlation, paired local receipt images, accepted extraction status, and CAD currency.
-- De-duplicate by atomic local expense-id state and conservative workbook matching.
-- Skip exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts.
-- Fill the first safe F/G row from 12-100 in the `YYYY-MM` worksheet, with the amount in F, merchant/date in G, and relative image hyperlink in H.
-- Create a missing monthly sheet by copying the latest earlier month and extend `Food Expense Summary` only when its known structure validates.
-- Preserve valid handoffs when Excel is locked, read-only, full, or structurally unexpected.
-- Archive successful and exact-duplicate files; quarantine ambiguous and invalid files with actionable reasons.
-- Create the five-minute Discord-delivery job paused after a copied-workbook canary; live activation requires separate approval.
+- ✅ Done: Implement the deterministic PowerShell processor and install its thin Hermes script wrapper.
+- ✅ Done: Validate final Version 2 JSON files, filename correlation, paired local receipt images, accepted extraction status, and CAD currency.
+- ✅ Done: De-duplicate by atomic local expense-id state and conservative workbook matching.
+- ✅ Done: Skip exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts.
+- ✅ Done: Fill the first safe F/G row from 12-100 in the `YYYY-MM` worksheet, with the amount in F, merchant/date in G, and relative image hyperlink in H.
+- ✅ Done: Create a missing monthly sheet by copying the latest earlier month and extend `Food Expense Summary` only when its known structure validates.
+- ✅ Done: Preserve valid handoffs when Excel is locked, read-only, full, or structurally unexpected.
+- ✅ Done: Archive successful and exact-duplicate files; quarantine ambiguous and invalid files with actionable reasons.
+- ✅ Done: Activate job `f6934b4a04fe` after Hugo's separate approval. It runs every five minutes in script-only/no-agent mode, delivers to Discord channel `1549288366992793652`, and is pinned to `gpt-5.6-luna` with high reasoning.
 
 Testing:
 
-- Unit tests for Version 2 validation, path safety, mapping, row selection, duplicate classification, state atomicity, routing, and Hermes output.
-- Copied-workbook Excel COM tests for insertion, hyperlink behavior, native-content preservation, missing-month creation, and summary extension.
-- Recovery tests for workbook locks, full transaction ranges, save/state/archive failures, and idempotent reruns.
-- Paused Hermes canary using disposable inbox and workbook paths, including Discord delivery verification.
+- ✅ Done: Unit tests for Version 2 validation, path safety, mapping, row selection, duplicate classification, state atomicity, routing, and Hermes output.
+- ✅ Done: Copied-workbook Excel COM tests for insertion, hyperlink behavior, native-content preservation, missing-month creation, and summary extension.
+- ✅ Done: Recovery seams for state/archive failures and idempotent reruns; lock/read-only/full handling is covered by deterministic code paths and capacity assertions.
+- ✅ Done: The disposable-path Hermes canary completed successfully and Discord message `1549441490327965807` was read back from the configured channel. The production override was removed afterward; following Hugo's separate approval, the production job is active.
 
 ### Phase 4: Optional External Receipt Photo Link
 

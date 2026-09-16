@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "expenseId": "018f6b3e-9c6e-4c41-8e1a-4f7c3a8a9b11",
+  "createdAt": "2026-09-05T12:34:56-07:00",
+  "sourceDeviceId": "fixture-phone",
+  "receiptDate": "2026-09-05",
+  "merchantName": "Example Supermarket",
+  "totalAmount": 42.35,
+  "currency": "CAD",
+  "extractionStatus": "confirmed",
+  "receiptImageRelativePath": "Documents/2_Others/Expenses_finance/receipt_images/2026-09/20260905_123456_receipt_018f6b3e.jpg"
+}
