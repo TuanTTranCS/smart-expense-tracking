@@ -83,6 +83,8 @@ Version 2 is implemented for Android receipt export. It retains the Version 1 fi
 
 The Version 2 JSON must not be published under its final `.json` name until the referenced image upload is complete.
 
+New Android exports also include `sourceDeviceName`, a non-empty human readable name detected from the Android manufacturer and model or overridden in Settings. The stable `sourceDeviceId` remains unchanged. When an image contains distinct transactions, each confirmed transaction gets its own Version 2 object in a separate JSON file, a distinct expense ID, and a paired image path.
+
 ## Canonical Field Names
 
 Use the JSON field names above unchanged in Kotlin DTOs, PowerShell objects, logs, and tests. Platform-specific models may use idiomatic type names, but serialized JSON must remain camelCase.

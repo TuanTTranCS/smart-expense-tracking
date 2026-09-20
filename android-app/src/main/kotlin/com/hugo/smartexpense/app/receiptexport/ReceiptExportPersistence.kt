@@ -16,6 +16,7 @@ data class ReceiptExportEntity(
     @PrimaryKey @ColumnInfo(name = "expense_id") val expenseId: String,
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "source_device_id") val sourceDeviceId: String,
+    @ColumnInfo(name = "source_device_name") val sourceDeviceName: String,
     @ColumnInfo(name = "receipt_date") val receiptDate: String,
     @ColumnInfo(name = "merchant_name") val merchantName: String,
     @ColumnInfo(name = "total_amount") val totalAmount: String,
@@ -42,7 +43,7 @@ interface ReceiptExportDao {
     suspend fun get(expenseId: String): ReceiptExportEntity?
 }
 
-@Database(entities = [ReceiptExportEntity::class], version = 1, exportSchema = false)
+@Database(entities = [ReceiptExportEntity::class], version = 2, exportSchema = false)
 abstract class ReceiptExportDatabase : RoomDatabase() {
     abstract fun receiptExportDao(): ReceiptExportDao
 
@@ -54,7 +55,11 @@ abstract class ReceiptExportDatabase : RoomDatabase() {
                 context.applicationContext,
                 ReceiptExportDatabase::class.java,
                 "receipt-exports.db",
-            ).build().also { instance = it }
+            ).addMigrations(object : androidx.room.migration.Migration(1, 2) {
+                override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE receipt_exports ADD COLUMN source_device_name TEXT NOT NULL DEFAULT 'Android device'")
+                }
+            }).build().also { instance = it }
         }
     }
 }
@@ -67,14 +72,14 @@ class RoomReceiptExportRepository(
 }
 
 private fun ReceiptExportRecord.toEntity() = ReceiptExportEntity(
-    expenseId, createdAt, sourceDeviceId, receiptDate, merchantName, totalAmount, currency,
+    expenseId, createdAt, sourceDeviceId, sourceDeviceName, receiptDate, merchantName, totalAmount, currency,
     extractionStatus, merchantLocation, originalImageFileName, sourceImageUri,
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, status.name, failure?.name, retryAfterSeconds,
 )
 
 private fun ReceiptExportEntity.toDomain() = ReceiptExportRecord(
-    expenseId, createdAt, sourceDeviceId, receiptDate, merchantName, totalAmount, currency,
+    expenseId, createdAt, sourceDeviceId, sourceDeviceName, receiptDate, merchantName, totalAmount, currency,
     extractionStatus, merchantLocation, originalImageFileName, sourceImageUri,
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, ReceiptExportStatus.valueOf(status),

@@ -15,19 +15,21 @@ class OpenAiCompatibleReceiptModelClient(
             "${provider.displayName} is configured for OCR text input, not direct image input."
         }
 
-        return execute(
-            buildImageRequest(
+        return executeWithInvalidJsonRecovery(
+            request = buildImageRequest(
                 prompt = prompt,
                 receiptImage = receiptImage,
-            )
+            ),
+            recoveryRequest = buildImageRequestWithoutResponseFormat(prompt, receiptImage),
         )
     }
 
-    override fun extractFromReceiptText(receiptText: String, prompt: String): String = execute(
-        buildTextRequest(
+    override fun extractFromReceiptText(receiptText: String, prompt: String): String = executeWithInvalidJsonRecovery(
+        request = buildTextRequest(
             prompt = prompt,
             receiptText = receiptText,
-        )
+        ),
+        recoveryRequest = buildTextRequestWithoutResponseFormat(prompt, receiptText),
     )
 
     fun testConfiguration(): ProviderTestResult = try {
@@ -61,21 +63,52 @@ class OpenAiCompatibleReceiptModelClient(
         }
     }
 
+    private fun executeWithInvalidJsonRecovery(
+        request: OpenAiCompatibleApiRequest,
+        recoveryRequest: OpenAiCompatibleApiRequest?,
+    ): String {
+        try {
+            val response = transport.send(request)
+            val finalResponse = if (recoveryRequest != null && response.isInvalidJsonRequest()) {
+                transport.send(recoveryRequest)
+            } else {
+                response
+            }
+            return mapResponse(finalResponse)
+        } catch (error: IOException) {
+            throw RemoteProviderException.NetworkUnavailable(
+                provider.displayName,
+                "Network is unavailable for ${provider.displayName}.",
+                error,
+            )
+        }
+    }
+
+    private fun OpenAiCompatibleApiResponse.isInvalidJsonRequest(): Boolean {
+        if (statusCode != 400) return false
+        return body.contains("\"code\":\"invalid_json\"", ignoreCase = true) ||
+            body.contains("\"code\": \"invalid_json\"", ignoreCase = true) ||
+            body.contains("failed to parse JSON", ignoreCase = true)
+    }
+
     private fun mapResponse(response: OpenAiCompatibleApiResponse): String {
         return when (response.statusCode) {
             200 -> parseAssistantContent(response.body)
             401, 403 -> throw RemoteProviderException.AuthenticationFailed(
                 provider.displayName,
                 extractErrorMessage(response.body) ?: "Authentication failed for ${provider.displayName}.",
+                response.body,
             )
             429 -> throw RemoteProviderException.RateLimited(
                 provider.displayName,
                 extractErrorMessage(response.body) ?: "${provider.displayName} rate limited the request.",
+                response.body,
             )
             else -> throw RemoteProviderException.UnexpectedResponse(
                 provider.displayName,
                 extractErrorMessage(response.body)
                     ?: "Unexpected ${response.statusCode} response from ${provider.displayName}.",
+                response.body,
             )
         }
     }
@@ -85,6 +118,7 @@ class OpenAiCompatibleReceiptModelClient(
         receiptText: String,
         schemaName: String = "receipt_extraction",
         schema: String = receiptExtractionSchema,
+        includeResponseFormat: Boolean = true,
     ): OpenAiCompatibleApiRequest {
         val promptText = buildString {
             append(prompt)
@@ -94,7 +128,7 @@ class OpenAiCompatibleReceiptModelClient(
         val body = """
             {
               "model": ${jsonString(provider.modelId)},
-              "response_format": ${structuredOutputFormat(schemaName, schema)},
+              ${responseFormatField(schemaName, schema, includeResponseFormat)}
               "messages": [
                 {
                   "role": "user",
@@ -106,13 +140,26 @@ class OpenAiCompatibleReceiptModelClient(
         return buildRequest(body)
     }
 
-    private fun buildImageRequest(prompt: String, receiptImage: ReceiptImage): OpenAiCompatibleApiRequest {
+    private fun buildTextRequestWithoutResponseFormat(
+        prompt: String,
+        receiptText: String,
+    ): OpenAiCompatibleApiRequest? = if (provider.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA) {
+        buildTextRequest(prompt, receiptText, includeResponseFormat = false)
+    } else {
+        null
+    }
+
+    private fun buildImageRequest(
+        prompt: String,
+        receiptImage: ReceiptImage,
+        includeResponseFormat: Boolean = true,
+    ): OpenAiCompatibleApiRequest {
         val imageDataUrl = "data:${receiptImage.mimeType};base64," +
             Base64.getEncoder().encodeToString(receiptImage.bytes)
         val body = """
             {
               "model": ${jsonString(provider.modelId)},
-              "response_format": ${structuredOutputFormat("receipt_extraction", receiptExtractionSchema)},
+              ${responseFormatField("receipt_extraction", receiptExtractionSchema, includeResponseFormat)}
               "messages": [
                 {
                   "role": "user",
@@ -133,6 +180,15 @@ class OpenAiCompatibleReceiptModelClient(
             }
         """.trimIndent()
         return buildRequest(body)
+    }
+
+    private fun buildImageRequestWithoutResponseFormat(
+        prompt: String,
+        receiptImage: ReceiptImage,
+    ): OpenAiCompatibleApiRequest? = if (provider.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA) {
+        buildImageRequest(prompt, receiptImage, includeResponseFormat = false)
+    } else {
+        null
     }
 
     private fun buildRequest(body: String): OpenAiCompatibleApiRequest {
@@ -166,6 +222,13 @@ class OpenAiCompatibleReceiptModelClient(
         """.trimIndent()
     }
 
+    private fun responseFormatField(schemaName: String, schema: String, include: Boolean): String =
+        if (include) {
+            "\"response_format\": ${structuredOutputFormat(schemaName, schema)},"
+        } else {
+            ""
+        }
+
     private fun parseAssistantContent(responseBody: String): String {
         val contentFieldIndex = responseBody.indexOf("\"content\"")
         if (contentFieldIndex >= 0) {
@@ -174,12 +237,12 @@ class OpenAiCompatibleReceiptModelClient(
                 val firstValueIndex = responseBody.indexOfFirstNonWhitespace(startIndex = colonIndex + 1)
                 if (firstValueIndex >= 0) {
                     return when (responseBody[firstValueIndex]) {
-                        '"' -> readJsonString(responseBody, firstValueIndex) ?: unexpectedContent()
+                        '"' -> readJsonString(responseBody, firstValueIndex) ?: unexpectedContent(responseBody)
                         '[' -> {
                             val arraySlice = responseBody.substring(firstValueIndex)
-                            findStringFieldAfter(arraySlice, "\"text\"") ?: unexpectedContent()
+                            findStringFieldAfter(arraySlice, "\"text\"") ?: unexpectedContent(responseBody)
                         }
-                        else -> unexpectedContent()
+                        else -> unexpectedContent(responseBody)
                     }
                 }
             }
@@ -193,6 +256,7 @@ class OpenAiCompatibleReceiptModelClient(
         throw RemoteProviderException.UnexpectedResponse(
             provider.displayName,
             "Provider response did not include assistant content.",
+            responseBody,
         )
     }
 
@@ -258,9 +322,10 @@ class OpenAiCompatibleReceiptModelClient(
         return -1
     }
 
-    private fun unexpectedContent(): Nothing = throw RemoteProviderException.UnexpectedResponse(
+    private fun unexpectedContent(responseBody: String): Nothing = throw RemoteProviderException.UnexpectedResponse(
         provider.displayName,
         "Provider response did not include assistant content.",
+        responseBody,
     )
 
     private fun jsonString(value: String): String = buildString {
@@ -272,7 +337,9 @@ class OpenAiCompatibleReceiptModelClient(
                 '\n' -> append("\\n")
                 '\r' -> append("\\r")
                 '\t' -> append("\\t")
-                else -> append(character)
+                '\b' -> append("\\b")
+                '\u000c' -> append("\\f")
+                else -> if (character.code < 0x20) append("\\u%04x".format(character.code)) else append(character)
             }
         }
         append('"')
@@ -284,6 +351,8 @@ class OpenAiCompatibleReceiptModelClient(
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "receipts": {"type": "array", "items": {
+                  "type": "object", "additionalProperties": false, "properties": {
                 "receiptDate": {"type": "string"},
                 "merchantName": {"type": "string"},
                 "totalAmount": {"type": "number"},
@@ -291,8 +360,10 @@ class OpenAiCompatibleReceiptModelClient(
                 "extractionStatus": {"type": "string", "enum": ["confirmed", "low_confidence", "failed"]},
                 "confidence": {"type": "number"},
                 "merchantLocation": {"type": ["string", "null"]}
+                }, "required": ["receiptDate", "merchantName", "totalAmount", "currency", "extractionStatus", "confidence", "merchantLocation"]}
+              }
               },
-              "required": ["receiptDate", "merchantName", "totalAmount", "currency", "extractionStatus", "confidence", "merchantLocation"]
+              "required": ["receipts"]
             }
         """.trimIndent()
 
@@ -351,16 +422,17 @@ sealed class RemoteProviderException(
     val providerDisplayName: String,
     message: String,
     cause: Throwable? = null,
+    val rawResponseBody: String? = null,
 ) : RuntimeException(message, cause) {
-    class AuthenticationFailed(providerDisplayName: String, message: String) :
-        RemoteProviderException(providerDisplayName, message)
+    class AuthenticationFailed(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
+        RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
 
-    class RateLimited(providerDisplayName: String, message: String) :
-        RemoteProviderException(providerDisplayName, message)
+    class RateLimited(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
+        RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
 
     class NetworkUnavailable(providerDisplayName: String, message: String, cause: Throwable? = null) :
         RemoteProviderException(providerDisplayName, message, cause)
 
-    class UnexpectedResponse(providerDisplayName: String, message: String) :
-        RemoteProviderException(providerDisplayName, message)
+    class UnexpectedResponse(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
+        RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
 }

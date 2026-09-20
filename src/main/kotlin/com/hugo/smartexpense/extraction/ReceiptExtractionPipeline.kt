@@ -13,7 +13,7 @@ class ReceiptExtractionPipeline(
             val parseResult = parser.parse(rawOutput)
             attempts += ReceiptExtractionAttempt(ReceiptExtractionMode.DIRECT_IMAGE, parseResult)
             if (parseResult is ParseResult.Valid) {
-                return ReceiptExtractionPipelineResult.Success(parseResult.value, ReceiptExtractionMode.DIRECT_IMAGE, attempts)
+                return ReceiptExtractionPipelineResult.Success(parseResult.values, ReceiptExtractionMode.DIRECT_IMAGE, attempts)
             }
         }
 
@@ -32,7 +32,7 @@ class ReceiptExtractionPipeline(
 
         return when (parseResult) {
             is ParseResult.Valid -> ReceiptExtractionPipelineResult.Success(
-                parseResult.value,
+                parseResult.values,
                 ReceiptExtractionMode.OCR_TEXT,
                 attempts,
             )
@@ -53,10 +53,12 @@ data class ReceiptExtractionAttempt(
 
 sealed class ReceiptExtractionPipelineResult {
     data class Success(
-        val result: ReceiptExtractionResult,
+        val results: List<ReceiptExtractionResult>,
         val mode: ReceiptExtractionMode,
         val attempts: List<ReceiptExtractionAttempt>,
-    ) : ReceiptExtractionPipelineResult()
+    ) : ReceiptExtractionPipelineResult() {
+        val result: ReceiptExtractionResult get() = results.first()
+    }
 
     data class Failed(
         val errors: List<String>,

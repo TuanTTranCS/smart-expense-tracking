@@ -1,6 +1,8 @@
 package com.hugo.smartexpense.extraction
 
 import java.io.IOException
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -97,6 +99,7 @@ class OpenAiCompatibleReceiptModelClientTest {
         }
 
         assertContains(error.message.orEmpty(), "invalid api key")
+        assertEquals("""{"error":{"message":"invalid api key"}}""", error.rawResponseBody)
     }
 
     @Test
@@ -117,6 +120,7 @@ class OpenAiCompatibleReceiptModelClientTest {
         }
 
         assertContains(error.message.orEmpty(), "too many requests")
+        assertEquals("""{"error":{"message":"too many requests"}}""", error.rawResponseBody)
     }
 
     @Test
@@ -136,6 +140,7 @@ class OpenAiCompatibleReceiptModelClientTest {
         }
 
         assertContains(error.message.orEmpty(), "Network is unavailable")
+        assertEquals(null, error.rawResponseBody)
     }
 
     @Test
@@ -176,6 +181,153 @@ class OpenAiCompatibleReceiptModelClientTest {
         assertContains(transport.lastRequest?.body.orEmpty(), "\"name\": \"provider_connectivity\"")
     }
 
+    @Test
+    fun receiptSchemaProducesValidJsonRequestsForImageAndOcrText() {
+        for (inputMode in listOf(RemoteInputMode.DIRECT_IMAGE, RemoteInputMode.OCR_TEXT)) {
+            val transport = FakeTransport(assistantResponse("""{"receipts":[]}"""))
+            val client = OpenAiCompatibleReceiptModelClient(
+                provider = remoteProvider(inputMode).copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA),
+                apiKeyStore = FakeApiKeyStore("expense-openai" to "super-secret"),
+                transport = transport,
+            )
+            if (inputMode == RemoteInputMode.DIRECT_IMAGE) {
+                client.extractFromReceiptImage(sampleImage)
+            } else {
+                client.extractFromReceiptText("TOTAL 42.35 CAD")
+            }
+
+            val request = JSONObject(requireNotNull(transport.lastRequest).body)
+            assertHasNoTrailingJsonComma(requireNotNull(transport.lastRequest).body)
+            val format = request.getJSONObject("response_format")
+            assertEquals("json_schema", format.getString("type"))
+            val wrapper = format.getJSONObject("json_schema")
+            assertEquals("receipt_extraction", wrapper.getString("name"))
+            val schema = wrapper.getJSONObject("schema")
+            assertEquals("object", schema.getString("type"))
+            assertEquals(false, schema.getBoolean("additionalProperties"))
+            assertEquals("receipts", schema.getJSONArray("required").getString(0))
+            val receipts = schema.getJSONObject("properties").getJSONObject("receipts")
+            assertEquals("array", receipts.getString("type"))
+            val item = receipts.getJSONObject("items")
+            assertEquals("object", item.getString("type"))
+            assertEquals(false, item.getBoolean("additionalProperties"))
+            assertEquals("receiptDate", item.getJSONArray("required").getString(0))
+            assertEquals(7, item.getJSONObject("properties").length())
+        }
+    }
+
+    @Test
+    fun retriesJsonSchemaExtractionWithoutResponseFormatAfterInvalidJsonResponse() {
+        val transport = SequencedFakeTransport(
+            OpenAiCompatibleApiResponse(
+                statusCode = 400,
+                body = """{"error":{"message":"Invalid body: failed to parse JSON value","code":"invalid_json"}}""",
+            ),
+            assistantResponse("""{"receipts":[]}"""),
+        )
+        val client = OpenAiCompatibleReceiptModelClient(
+            provider = remoteProvider(RemoteInputMode.DIRECT_IMAGE).copy(
+                structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA,
+            ),
+            apiKeyStore = FakeApiKeyStore("expense-openai" to "super-secret"),
+            transport = transport,
+        )
+
+        assertEquals("""{"receipts":[]}""", client.extractFromReceiptImage(sampleImage))
+        assertEquals(2, transport.requests.size)
+        assertContains(transport.requests.first().body, "\"response_format\"")
+        assertTrue(!transport.requests.last().body.contains("\"response_format\""))
+        assertContains(transport.requests.last().body, "\"type\": \"image_url\"")
+        assertHasNoTrailingJsonComma(transport.requests.last().body)
+        JSONObject(transport.requests.last().body)
+    }
+
+    @Test
+    fun doesNotRetryOtherProviderErrors() {
+        val transport = SequencedFakeTransport(
+            OpenAiCompatibleApiResponse(
+                statusCode = 400,
+                body = """{"error":{"message":"model not found","code":"model_not_found"}}""",
+            ),
+            assistantResponse("""{"receipts":[]}"""),
+        )
+        val client = OpenAiCompatibleReceiptModelClient(
+            provider = remoteProvider(RemoteInputMode.DIRECT_IMAGE).copy(
+                structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA,
+            ),
+            apiKeyStore = FakeApiKeyStore("expense-openai" to "super-secret"),
+            transport = transport,
+        )
+
+        assertFailsWith<RemoteProviderException.UnexpectedResponse> {
+            client.extractFromReceiptImage(sampleImage)
+        }
+        assertEquals(1, transport.requests.size)
+    }
+
+    @Test
+    fun jsonObjectRequestsRemainValidWithControlCharactersInOcrText() {
+        val transport = FakeTransport(assistantResponse("{}"))
+        val client = OpenAiCompatibleReceiptModelClient(
+            provider = remoteProvider(RemoteInputMode.OCR_TEXT),
+            apiKeyStore = FakeApiKeyStore("expense-openai" to "super-secret"),
+            transport = transport,
+        )
+        client.extractFromReceiptText("line one\u000cline two\u0001")
+        val request = JSONObject(requireNotNull(transport.lastRequest).body)
+        assertEquals("json_object", request.getJSONObject("response_format").getString("type"))
+        assertContains(request.getJSONArray("messages").getJSONObject(0).getString("content"), "line one\u000cline two\u0001")
+    }
+
+    @Test
+    fun remoteImagePipelineParsesOneAndMultipleReceiptsWithEscapedMerchantName() {
+        val receipt = """{"receiptDate":"2026-09-15","merchantName":"Hugo's \"Market\"","totalAmount":12.34,"currency":"CAD","extractionStatus":"confirmed","confidence":0.9,"merchantLocation":null}"""
+        for (raw in listOf("""{"receipts":[$receipt]}""", """{"receipts":[$receipt,$receipt]}""")) {
+            val client = OpenAiCompatibleReceiptModelClient(
+                provider = remoteProvider(RemoteInputMode.DIRECT_IMAGE).copy(
+                    structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA,
+                ),
+                apiKeyStore = FakeApiKeyStore("expense-openai" to "super-secret"),
+                transport = FakeTransport(assistantResponse(raw)),
+            )
+            val result = assertIs<ReceiptExtractionPipelineResult.Success>(
+                ReceiptExtractionPipeline(client).extract(sampleImage),
+            )
+            assertEquals(if (raw.contains(",$receipt")) 2 else 1, result.results.size)
+            assertEquals("Hugo's \"Market\"", result.results.first().merchantName)
+            assertEquals(raw, result.results.first().rawModelOutput)
+        }
+    }
+
+    private fun assistantResponse(raw: String): OpenAiCompatibleApiResponse = OpenAiCompatibleApiResponse(
+        statusCode = 200,
+        body = JSONObject().put(
+            "choices",
+            JSONArray().put(JSONObject().put("message", JSONObject().put("content", raw))),
+        ).toString(),
+    )
+
+    private fun assertHasNoTrailingJsonComma(json: String) {
+        var inString = false
+        var escaped = false
+        json.forEachIndexed { index, character ->
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                } else if (character == '\\') {
+                    escaped = true
+                } else if (character == '"') {
+                    inString = false
+                }
+            } else if (character == '"') {
+                inString = true
+            } else if (character == ',') {
+                val next = json.drop(index + 1).firstOrNull { !it.isWhitespace() }
+                assertTrue(next != '}' && next != ']', "Request JSON contains a trailing comma.")
+            }
+        }
+    }
+
     private fun remoteProvider(inputMode: RemoteInputMode = RemoteInputMode.OCR_TEXT): OpenAiCompatibleProviderOption =
         OpenAiCompatibleProviderOption(
             id = "remote-openai",
@@ -196,6 +348,18 @@ private class FakeTransport(
     override fun send(request: OpenAiCompatibleApiRequest): OpenAiCompatibleApiResponse {
         lastRequest = request
         return response
+    }
+}
+
+private class SequencedFakeTransport(
+    vararg responses: OpenAiCompatibleApiResponse,
+) : OpenAiCompatibleApiTransport {
+    private val remainingResponses = ArrayDeque(responses.toList())
+    val requests = mutableListOf<OpenAiCompatibleApiRequest>()
+
+    override fun send(request: OpenAiCompatibleApiRequest): OpenAiCompatibleApiResponse {
+        requests += request
+        return remainingResponses.removeFirst()
     }
 }
 

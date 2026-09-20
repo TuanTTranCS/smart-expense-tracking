@@ -86,6 +86,12 @@ REQ-A-016: Retrying an interrupted export shall reuse the expense ID, export tim
 
 REQ-A-017: Before image upload, the app shall idempotently resolve or create the required `receipt_images/YYYY-MM` folder hierarchy. A folder-creation failure shall preserve the local export for retry and shall not publish the final JSON.
 
+REQ-A-018: When a user confirms an extracted receipt without editing its fields, the exported handoff shall use `extractionStatus: "confirmed"`, including when extraction returned `low_confidence`. Any user edit to a review field shall make the exported status `manual`; retry shall preserve the status saved for that export.
+
+REQ-A-019: When one image contains distinct receipt transactions, the app shall review them separately and publish one Version 2 JSON handoff and paired normalized image per confirmed transaction. Each transaction shall retain its own `confirmed` or `manual` status and retry identity.
+
+REQ-A-020: The app shall display a detected device name in Settings, allow a persisted manual override, and include the effective name as `sourceDeviceName` in every new handoff JSON while retaining the stable `sourceDeviceId`.
+
 ### Model Provider and Extraction
 
 REQ-M-001: The extraction implementation shall default to an on-device provider.
@@ -93,6 +99,8 @@ REQ-M-001: The extraction implementation shall default to an on-device provider.
 REQ-M-002: The extraction prompt/output contract shall require structured data, not free-form prose.
 
 REQ-M-003: The app shall validate model output before allowing export.
+
+REQ-M-003A: The extraction response shall represent distinct transactions as elements in a `receipts` array. Matching itemized and finalized documents for one transaction shall produce one element using the finalized charged amount; uncertain values shall use `low_confidence`.
 
 REQ-M-004: If model extraction fails or confidence is low, the app shall allow manual entry.
 
@@ -152,6 +160,8 @@ REQ-UI-003: Main shall show OneDrive readiness with only the contextual connect,
 REQ-UI-004: Navigating between Main and Settings shall preserve receipt extraction, review, export, and retry state. Provider selection and image-preprocessing changes shall affect the next extraction and shall not mutate an operation already in flight.
 
 REQ-UI-005: System Back and Up from Settings shall return to the existing Main destination. If a profile editor contains unsaved metadata or an unsaved API key, Back or Up shall require explicit discard confirmation before closing the editor.
+
+REQ-UI-006: Settings shall provide a persisted, default-off Debug output checkbox. When enabled, Main shall show the raw extraction reply or provider/transport error in a read-only textbox after an extraction attempt, and the exact generated Version 2 handoff JSON in a read-only textbox for each attempted export. Failed uploads shall identify the JSON as not published. Disabling Debug shall hide these fields without changing review or retry state.
 
 ### Handoff File
 
@@ -438,6 +448,10 @@ AC-027: When the workbook is open, locked, read-only, full, unavailable, or stru
 AC-028: A quiet five-minute run emits `[SILENT]`; a run with reportable outcomes emits a concise deterministic status suitable for direct Discord delivery without invoking an LLM.
 
 AC-029: Unit tests and a disposable-workbook Excel COM canary pass before the Hermes job is created, and that job remains paused until the user separately approves live activation.
+
+AC-030: Confirming an unchanged `low_confidence` receipt produces JSON with `extractionStatus: "confirmed"`. Editing any review field before export produces `extractionStatus: "manual"`, and retrying a failed export retains its saved status.
+
+AC-031: A JSON Schema extraction request is valid JSON with an outer receipts array schema; the provider check and receipt extraction both work with their respective schemas. Debug output is hidden by default, exposes the raw response or error when enabled, and shows each generated export JSON with its publication state.
 
 ## Windows implementation verification
 

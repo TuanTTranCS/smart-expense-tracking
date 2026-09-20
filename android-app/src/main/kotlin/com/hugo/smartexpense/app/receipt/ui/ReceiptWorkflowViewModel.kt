@@ -7,6 +7,7 @@ import com.hugo.smartexpense.app.ReceiptReviewState
 import com.hugo.smartexpense.app.receiptexport.ReceiptExportFailure
 import com.hugo.smartexpense.app.receiptexport.ReceiptExportRecord
 import com.hugo.smartexpense.app.receiptexport.ReceiptExportStatus
+import com.hugo.smartexpense.app.receiptexport.toVersion2Json
 import com.hugo.smartexpense.app.settings.data.AppSettingsRepository
 import com.hugo.smartexpense.extraction.ModelProfile
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,8 +21,10 @@ import kotlinx.coroutines.withContext
 data class ReceiptWorkflowUiState(
     val extracting: Boolean = false,
     val exporting: Boolean = false,
-    val review: ReceiptReviewState? = null,
-)
+    val reviews: List<ReceiptReviewState> = emptyList(),
+) {
+    val review: ReceiptReviewState? get() = reviews.firstOrNull()
+}
 
 class ReceiptWorkflowViewModel(
     private val settingsRepository: AppSettingsRepository,
@@ -29,7 +32,7 @@ class ReceiptWorkflowViewModel(
         uri: String,
         reduceOversizedImages: Boolean,
         remoteProfileSnapshot: ModelProfile?,
-    ) -> ReceiptReviewState,
+    ) -> List<ReceiptReviewState>,
     private val startExport: suspend (ReceiptReviewState) -> ReceiptExportRecord,
     private val retryExport: suspend (String) -> ReceiptExportRecord,
     private val operationDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -40,26 +43,34 @@ class ReceiptWorkflowViewModel(
     fun importReceipt(uri: String, remoteProfileSnapshot: ModelProfile?) {
         if (uri.isBlank() || mutableUiState.value.extracting || mutableUiState.value.exporting) return
         val reduceSnapshot = settingsRepository.settings.value.reduceOversizedImages
-        mutableUiState.value = mutableUiState.value.copy(extracting = true, review = null)
+        mutableUiState.value = mutableUiState.value.copy(extracting = true, reviews = emptyList())
         viewModelScope.launch {
             val result = runCatching {
                 withContext(operationDispatcher) { extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot) }
-            }.getOrElse { ReceiptReviewState.manual(it.message ?: "The receipt could not be processed.") }
+            }.getOrElse { listOf(ReceiptReviewState.manual(it.message ?: "The receipt could not be processed.")) }
             mutableUiState.value = mutableUiState.value.copy(
                 extracting = false,
-                review = result.copy(sourceImageUri = uri),
+                reviews = result.map { it.copy(sourceImageUri = uri) },
             )
         }
     }
 
-    fun updateReview(review: ReceiptReviewState) {
-        if (!mutableUiState.value.exporting) mutableUiState.value = mutableUiState.value.copy(review = review)
+    fun updateReview(index: Int, review: ReceiptReviewState) {
+        if (!mutableUiState.value.exporting) {
+            val current = mutableUiState.value.reviews.getOrNull(index) ?: return
+            if (current.exportExpenseId != null) return
+            mutableUiState.value = mutableUiState.value.copy(reviews = mutableUiState.value.reviews.toMutableList().apply {
+                this[index] = current.withUserEdits(review)
+            })
+        }
     }
 
-    fun export() {
-        val reviewSnapshot = mutableUiState.value.review ?: return
+    fun export(index: Int) {
+        val reviewSnapshot = mutableUiState.value.reviews.getOrNull(index)?.confirmedForExport() ?: return
         if (mutableUiState.value.exporting || reviewSnapshot.exportComplete) return
-        mutableUiState.value = mutableUiState.value.copy(exporting = true)
+        mutableUiState.value = mutableUiState.value.copy(exporting = true, reviews = mutableUiState.value.reviews.toMutableList().apply {
+            this[index] = reviewSnapshot
+        })
         viewModelScope.launch {
             val result = runCatching {
                 withContext(operationDispatcher) {
@@ -68,10 +79,10 @@ class ReceiptWorkflowViewModel(
             }
             mutableUiState.value = mutableUiState.value.copy(
                 exporting = false,
-                review = result.fold(
+                reviews = mutableUiState.value.reviews.toMutableList().apply { this[index] = result.fold(
                     onSuccess = { reviewSnapshot.withExportResult(it) },
                     onFailure = { reviewSnapshot.copy(message = it.message ?: "The receipt could not be exported.") },
-                ),
+                ) },
             )
         }
     }
@@ -79,6 +90,7 @@ class ReceiptWorkflowViewModel(
     private fun ReceiptReviewState.withExportResult(record: ReceiptExportRecord): ReceiptReviewState = copy(
         exportExpenseId = record.expenseId,
         exportComplete = record.status == ReceiptExportStatus.EXPORTED,
+        exportJsonPreview = record.toVersion2Json(),
         message = if (record.status == ReceiptExportStatus.EXPORTED) {
             "Receipt image and handoff JSON exported to OneDrive."
         } else when (record.failure) {

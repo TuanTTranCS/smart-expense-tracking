@@ -11,6 +11,27 @@ class ReceiptExtractionParserTest {
     private val parser = ReceiptExtractionParser()
 
     @Test
+    fun parsesTwoDistinctTransactionsWithoutMergingAmounts() {
+        val raw = """{"receipts":[
+          {"receiptDate":"2026-09-15","merchantName":"Shop A","totalAmount":12.34,"currency":"CAD","extractionStatus":"confirmed","confidence":0.9,"merchantLocation":null},
+          {"receiptDate":"2026-09-16","merchantName":"Shop B","totalAmount":56.78,"currency":"CAD","extractionStatus":"low_confidence","confidence":0.6,"merchantLocation":null}
+        ]}"""
+        val values = assertIs<ParseResult.Valid>(parser.parse(raw)).values
+        assertEquals(2, values.size)
+        assertEquals("Shop A", values[0].merchantName)
+        assertEquals(BigDecimal("12.34"), values[0].totalAmount)
+        assertEquals("Shop B", values[1].merchantName)
+        assertEquals(BigDecimal("56.78"), values[1].totalAmount)
+    }
+
+    @Test
+    fun rejectsWholeBatchWhenOneReceiptIsInvalid() {
+        val raw = """{"receipts":[{"receiptDate":"2026-09-15","merchantName":"A","totalAmount":1,"currency":"CAD","extractionStatus":"confirmed"},{"receiptDate":"2026-09-16","merchantName":"","totalAmount":2,"currency":"CAD","extractionStatus":"confirmed"}]}"""
+        val invalid = assertIs<ParseResult.Invalid>(parser.parse(raw))
+        assertTrue(invalid.errors.any { it.contains("Receipt 2: merchantName") })
+    }
+
+    @Test
     fun parsesValidModelOutput() {
         val raw = """
             {
@@ -102,4 +123,3 @@ class ReceiptExtractionParserTest {
         assertEquals(ExtractionStatus.LOW_CONFIDENCE, parsed.extractionStatus)
     }
 }
-

@@ -2,8 +2,9 @@
 
 - ✅ Done: Set the Android launcher label to `Smart Expense Tracking` and configured the supplied `images/smart-expense.png` as the launcher icon resource.
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
+- ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
 
-Last updated: 2026-09-14
+Last updated: 2026-09-19
 
 ## Overall Status
 
@@ -70,6 +71,11 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 - ✅ Done: User-validated Microsoft OneDrive access and successful saving of the receipt handoff JSON file on a physical device on 2026-09-10.
 
 - ✅ Done: Added the multiple-receipt extraction rule to direct-image and OCR-text prompts: matching itemized and finalized documents yield one expense using the finalized amount including tax and tip, totals are never summed, and ambiguous pairs are marked `low_confidence`. Prompt contract tests were added on 2026-09-06.
+- ✅ Done: Android confirmation now exports unchanged `low_confidence` receipts as `confirmed`; any user edit to a review field exports as `manual`. The status is stored with the local export for consistent JSON generation on retry. Focused unit tests added on 2026-09-16; verified against REQ-A-018 and AC-030.
+- ✅ Done: Distinct transactions in one receipt image now produce a `receipts` array, separate review cards, and independent paired OneDrive image/JSON exports with per-transaction confirmed/manual status and retry identity. Settings auto-detects a device name, allows a persistent override, and snapshots `sourceDeviceName` into every new JSON. Covered by parser, workflow, export, and settings unit tests; verified against REQ-A-019, REQ-A-020, and REQ-M-003A.
+
+- ✅ Done: Fixed the malformed nested receipts JSON Schema that caused extraction requests to be rejected while provider checks passed. Added a default-off persisted Debug setting, one raw extraction response/error field, and a generated Version 2 JSON preview with publication status per export. Full request-JSON, provider-error, setting, workflow, and Compose tests were added; shared and Android unit tests, Compose test compilation, and debug APK assembly passed on 2026-09-17. Verified against REQ-M-002, REQ-M-003A, REQ-M-014, REQ-UI-006, and AC-031. No device was attached for an LM Studio/OpenRouter smoke test.
+- ✅ Done: Removed the remaining trailing comma from the nested receipt schema after LM Studio strictly rejected the request even though the lenient JVM `org.json` test parser accepted it. Added raw-request regression coverage and a narrow recovery path that retries a JSON-schema extraction once without `response_format` only when the provider returns HTTP 400 `invalid_json`. Full shared tests, Android unit tests, Compose test compilation, and debug APK assembly passed on 2026-09-19. Verified against REQ-M-002, REQ-M-003A, REQ-M-013, REQ-M-014, and AC-031; Hugo confirmed successful LM Studio receipt-image extraction on a physical Pixel 7 on 2026-09-19.
 
 ## In Progress
 

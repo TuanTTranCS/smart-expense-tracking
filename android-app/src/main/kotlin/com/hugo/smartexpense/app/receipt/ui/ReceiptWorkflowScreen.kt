@@ -47,8 +47,9 @@ fun ReceiptWorkflowScreen(
     onVerifyProvider: () -> Unit,
     onOneDriveRecovery: (OneDriveRecoveryAction) -> Unit,
     onChooseReceipt: () -> Unit,
-    onReviewChange: (ReceiptReviewState) -> Unit,
-    onExport: () -> Unit,
+    onReviewChange: (Int, ReceiptReviewState) -> Unit,
+    onExport: (Int) -> Unit,
+    debugOutputEnabled: Boolean = false,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -82,8 +83,14 @@ fun ReceiptWorkflowScreen(
             enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy,
             onClick = onChooseReceipt,
         ) { Text(if (workflowState.extracting) "Extracting" else "Choose receipt") }
-        workflowState.review?.let {
-            ReceiptReviewEditor(it, workflowState.exporting, oneDrive.readyForExport, onReviewChange, onExport)
+        val rawOutput = workflowState.reviews.firstOrNull()?.rawModelOutput.orEmpty()
+        if (debugOutputEnabled && rawOutput.isNotBlank()) {
+            DebugOutputField("Raw extraction response", rawOutput)
+        }
+        workflowState.reviews.forEachIndexed { index, review ->
+            if (workflowState.reviews.size > 1) Text("Receipt ${index + 1} of ${workflowState.reviews.size}", style = MaterialTheme.typography.titleLarge)
+            ReceiptReviewEditor(review, workflowState.exporting, oneDrive.readyForExport,
+                { onReviewChange(index, it) }, { onExport(index) }, debugOutputEnabled)
         }
     }
 }
@@ -162,20 +169,21 @@ private fun ReceiptReviewEditor(
     canExport: Boolean,
     onStateChange: (ReceiptReviewState) -> Unit,
     onExport: () -> Unit,
+    debugOutputEnabled: Boolean,
 ) {
     Text(if (state.manualEntryRequired) "Manual receipt entry" else "Review extracted receipt", style = MaterialTheme.typography.headlineSmall)
     Text(state.message)
-    ReviewField("Receipt date (yyyy-MM-dd)", state.receiptDate) { onStateChange(state.copy(receiptDate = it)) }
-    ReviewField("Merchant", state.merchantName) { onStateChange(state.copy(merchantName = it)) }
-    ReviewField("Total amount", state.totalAmount) { onStateChange(state.copy(totalAmount = it)) }
-    ReviewField("Currency", state.currency) { onStateChange(state.copy(currency = it.uppercase())) }
-    ReviewField("Merchant location", state.merchantLocation) { onStateChange(state.copy(merchantLocation = it)) }
+    val editable = !exporting && state.exportExpenseId == null
+    ReviewField("Receipt date (yyyy-MM-dd)", state.receiptDate, editable) { onStateChange(state.copy(receiptDate = it)) }
+    ReviewField("Merchant", state.merchantName, editable) { onStateChange(state.copy(merchantName = it)) }
+    ReviewField("Total amount", state.totalAmount, editable) { onStateChange(state.copy(totalAmount = it)) }
+    ReviewField("Currency", state.currency, editable) { onStateChange(state.copy(currency = it.uppercase())) }
+    ReviewField("Merchant location", state.merchantLocation, editable) { onStateChange(state.copy(merchantLocation = it)) }
+    if (state.exportExpenseId != null && !state.exportComplete) {
+        Text("This export keeps the saved fields on retry. Choose the receipt again to make changes.")
+    }
     Text("Extraction status: ${state.extractionStatus}")
     Text("Confidence: ${state.confidence.ifBlank { "not available" }}")
-    if (state.rawModelOutput.isNotBlank()) {
-        Text("Raw model output", style = MaterialTheme.typography.titleMedium)
-        Text(state.rawModelOutput)
-    }
     Button(enabled = canExport && !exporting && !state.exportComplete, onClick = onExport) {
         Text(when {
             exporting -> "Exporting"
@@ -185,9 +193,29 @@ private fun ReceiptReviewEditor(
         })
     }
     if (!canExport) Text("Connect and verify OneDrive access before exporting.")
+    if (debugOutputEnabled && state.exportJsonPreview != null) {
+        Text(
+            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON — not published",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        DebugOutputField("Handoff JSON", state.exportJsonPreview)
+    }
 }
 
 @Composable
-private fun ReviewField(label: String, value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(value, onValueChange, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+private fun DebugOutputField(label: String, value: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = {},
+        readOnly = true,
+        label = { Text(label) },
+        minLines = 4,
+        maxLines = 10,
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+    )
+}
+
+@Composable
+private fun ReviewField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
+    OutlinedTextField(value, onValueChange, label = { Text(label) }, enabled = enabled, singleLine = true, modifier = Modifier.fillMaxWidth())
 }

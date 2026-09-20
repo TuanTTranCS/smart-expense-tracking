@@ -34,6 +34,7 @@ Resolution path:
 - ✅ Done: The user successfully verified the multiple model-profile feature on a physical Pixel 7 on 2026-09-05.
 - ✅ Done: Added versioned bulk provider-configuration JSON export/import through Android's system document picker. Exports contain all saved remote-profile metadata and the selector snapshot but exclude credentials and internal aliases; imports provide validation and confirmation, atomically persist profiles, remap conflicting IDs, and preserve the current local selector/opt-in state. Focused unit coverage verifies the JSON contract, security boundary, import workflow, and Room bulk persistence. User-validated on a physical device on 2026-09-10.
 - ✅ Done: Updated and unit-tested both extraction prompts so matching itemized and finalized receipt documents produce one expense using the finalized amount including tax and tip; ambiguous pairs require `low_confidence` review.
+- ✅ Done: Updated the Android review and OneDrive handoff status rule: confirming an unchanged `low_confidence` receipt exports `confirmed`, while editing any review field exports `manual`. Added focused unit coverage for review edits, export, JSON, and retry persistence.
 - ✅ Done: Separated the Main receipt workflow from Settings configuration with Navigation Compose. Added compact provider selection and saved-profile verification, local Gemma model-file readiness checks, a shared navigation-stable receipt workflow state holder, persisted preprocessing snapshots, and one derived OneDrive readiness rule. Focused Android unit tests and debug assembly pass, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 - Later: Prototype Google AI Edge API or LiteRT-LM integration on Android hardware. The platform-neutral parser/prompt spike, runtime pipeline, initial `Gemma 4 E2B` model selection, Android-facing adapter bridge, Android LiteRT-LM module wiring, workspace SDK configuration, and Android assembly verification are done; device execution is deferred.
 - Later: Verify whether receipt images can be passed directly to the selected local model path. Documentation confirms the API supports image content with multimodal models and a vision backend; actual selected model/device behavior remains unverified.
@@ -117,6 +118,28 @@ Done when:
 - ✅ Missing-month creation and `Food Expense Summary` extension pass the coverage check.
 - ✅ Duplicate expense IDs and exact workbook duplicates are skipped; similar records are quarantined.
 - ✅ Unit and copied-workbook integration tests cover mapping, duplicate detection, capacity, read-only/deferred paths, and failure recovery seams.
+
+## Gap 6: Multiple Transactions and Device Name
+
+Status: ✅ Done
+
+- ✅ Done: Direct-image and OCR-text prompts return a `receipts` list with one element for each distinct transaction and one finalized element for matching itemized/finalized documents.
+- ✅ Done: Parse and validate all list elements, while accepting legacy single-object responses.
+- ✅ Done: Show each transaction in its own review card and keep edits, `confirmed`/`manual` status, export ID, and retry result independent.
+- ✅ Done: Export each confirmed transaction to its own Version 2 JSON file and paired JPEG using the existing image-first publication rule.
+- ✅ Done: Detect the Android device name, persist an optional Settings override, and snapshot `sourceDeviceName` into each export record and JSON.
+- ✅ Done: Unit tests cover array parsing, independent review/export, status behavior, device-name persistence, and JSON output. Checked against REQ-A-019, REQ-A-020, and REQ-M-003A.
+
+## Gap 7: Receipt Extraction Regression and Debug Output
+
+Status: ✅ Done (automated verification complete; live provider smoke test pending)
+
+- ✅ Done: Repaired the nested receipts JSON Schema and validated complete image and OCR requests for JSON Schema and JSON Object provider modes.
+- ✅ Done: Preserved raw model output and provider/transport errors in transient review state, visible only when the persisted Debug setting is enabled.
+- ✅ Done: Displayed each attempted export's exact generated Version 2 JSON with published or not-published status, independently across receipts and retries.
+- ✅ Done: Shared and Android unit tests, Compose test compilation, and debug APK assembly passed on 2026-09-17; checked REQ-M-003A, REQ-M-014, REQ-UI-006, and AC-031.
+- ✅ Done: Removed a trailing comma that LM Studio's strict parser rejected but the JVM `org.json` test parser accepted. Added a raw JSON trailing-comma regression check and a one-time `invalid_json` recovery request without `response_format`. Shared and Android unit tests, Compose test compilation, and debug APK assembly passed on 2026-09-19; checked REQ-M-002, REQ-M-003A, REQ-M-013, REQ-M-014, and AC-031.
+- ✅ Done: Hugo confirmed the corrected LM Studio receipt-image extraction flow on a physical Pixel 7 on 2026-09-19. An OpenRouter smoke test remains pending when a configured endpoint is available.
 
 ## Gap 5: Receipt Image and Optional Photo Link
 

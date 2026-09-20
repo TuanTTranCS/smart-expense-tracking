@@ -13,6 +13,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +36,8 @@ fun SettingsScreen(
     profilesViewModel: ModelProfilesViewModel,
     settings: AppSettings,
     onReduceOversizedImagesChange: (Boolean) -> Unit,
+    onDebugOutputEnabledChange: (Boolean) -> Unit,
+    onDeviceNameChange: (String) -> Unit,
     onExportProfiles: () -> Unit,
     onImportProfiles: () -> Unit,
     onNavigateBack: () -> Unit,
@@ -77,6 +80,25 @@ fun SettingsScreen(
             Text("Reduce input images larger than 200 KB", Modifier.padding(top = 12.dp))
         }
         Text("Oversized images are resized and encoded as JPEG below 200 KB before the next extraction.")
+        Row {
+            Checkbox(
+                checked = settings.debugOutputEnabled,
+                onCheckedChange = onDebugOutputEnabledChange,
+                modifier = Modifier.semantics { contentDescription = "Debug output" },
+            )
+            Text("Debug output", Modifier.padding(top = 12.dp))
+        }
+        Text("Show raw extraction responses and generated handoff JSON on the receipt screen.")
+        Text("Device name", style = MaterialTheme.typography.headlineSmall)
+        OutlinedTextField(
+            value = settings.deviceNameOverride,
+            onValueChange = onDeviceNameChange,
+            label = { Text("Custom device name") },
+            placeholder = { Text(settings.detectedDeviceName) },
+            supportingText = { Text("Exported as sourceDeviceName. Clear to use the detected name: ${settings.detectedDeviceName}") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Custom device name" },
+        )
     }
 
     if (confirmDiscard) {

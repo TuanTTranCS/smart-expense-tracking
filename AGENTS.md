@@ -5,8 +5,9 @@
 - Follow best practices and design patterns for the language and software stacks defined in [PLAN.md](docs/PLAN.md).
 - Track the current implementation status in [current status.md](docs/current status.md).
 - Track gap-closing implementation work in [gap-closing-plan-details.md](docs/gap-closing-plan-details.md).
-- For every task implemented from the plan:
+- For every task implemented directly or from any plan:
   - Cover the implementation with unit tests.
   - Verify it against [requirements.md](docs/requirements.md).
+  - Build the app after implementation is complete to confirm it compiles successfully.
   - Mark the task implementation status as ✅ Done.
   - Check whether `README.md` needs an update; keep it short.

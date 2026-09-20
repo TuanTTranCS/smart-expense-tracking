@@ -25,6 +25,7 @@ data class ReceiptExportRecord(
     val expenseId: String,
     val createdAt: String,
     val sourceDeviceId: String,
+    val sourceDeviceName: String = "Android device",
     val receiptDate: String,
     val merchantName: String,
     val totalAmount: String,
@@ -103,11 +104,13 @@ class ReceiptExportController(
     private val imageReader: ReceiptExportImageReader,
     private val publisher: ReceiptExportPublisher,
     private val sourceDeviceId: () -> String,
+    private val sourceDeviceName: () -> String = { "Android device" },
     private val now: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val newExpenseId: () -> String = { UUID.randomUUID().toString() },
 ) {
     suspend fun start(review: ReceiptReviewState): ReceiptExportRecord {
         validate(review)
+        val confirmedReview = review.confirmedForExport()
         val expenseId = newExpenseId()
         val timestamp = now()
         val paths = ReceiptExportPaths.create(expenseId, timestamp)
@@ -115,12 +118,13 @@ class ReceiptExportController(
             expenseId = expenseId,
             createdAt = timestamp.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             sourceDeviceId = sourceDeviceId(),
-            receiptDate = review.receiptDate.trim(),
-            merchantName = review.merchantName.trim(),
-            totalAmount = BigDecimal(review.totalAmount.trim()).toPlainString(),
-            currency = review.currency.trim().uppercase(),
-            extractionStatus = review.extractionStatus,
-            merchantLocation = review.merchantLocation.trim().ifBlank { null },
+            sourceDeviceName = sourceDeviceName().trim().ifBlank { "Android device" },
+            receiptDate = confirmedReview.receiptDate.trim(),
+            merchantName = confirmedReview.merchantName.trim(),
+            totalAmount = BigDecimal(confirmedReview.totalAmount.trim()).toPlainString(),
+            currency = confirmedReview.currency.trim().uppercase(),
+            extractionStatus = confirmedReview.extractionStatus,
+            merchantLocation = confirmedReview.merchantLocation.trim().ifBlank { null },
             originalImageFileName = null,
             sourceImageUri = review.sourceImageUri,
             receiptImageRelativePath = paths.imageRelativePath,
@@ -193,6 +197,7 @@ fun ReceiptExportRecord.toVersion2Json(): String = buildString {
     field("expenseId", expenseId)
     field("createdAt", createdAt)
     field("sourceDeviceId", sourceDeviceId)
+    field("sourceDeviceName", sourceDeviceName)
     field("receiptDate", receiptDate)
     field("merchantName", merchantName)
     field("totalAmount", totalAmount, quoted = false)

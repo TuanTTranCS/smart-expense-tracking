@@ -84,6 +84,7 @@ fun SmartExpenseApp(
                     onChooseReceipt = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
                     onReviewChange = workflowViewModel::updateReview,
                     onExport = workflowViewModel::export,
+                    debugOutputEnabled = settings.debugOutputEnabled,
                 )
             }
             composable(SETTINGS_ROUTE) {
@@ -112,6 +113,8 @@ fun SmartExpenseApp(
                     profilesViewModel = profilesViewModel,
                     settings = settings,
                     onReduceOversizedImagesChange = settingsRepository::setReduceOversizedImages,
+                    onDebugOutputEnabledChange = settingsRepository::setDebugOutputEnabled,
+                    onDeviceNameChange = settingsRepository::setDeviceNameOverride,
                     onExportProfiles = { exporter.launch(providerConfigFileName()) },
                     onImportProfiles = { importer.launch(arrayOf("application/json", "text/json")) },
                     onNavigateBack = { navController.popBackStack() },

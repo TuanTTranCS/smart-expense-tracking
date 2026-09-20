@@ -17,6 +17,8 @@ class ReceiptExtractionPromptTest {
     }
 
     private fun assertMultipleReceiptPolicy(prompt: String) {
+        assertContains(prompt, "\"receipts\" array")
+        assertContains(prompt, "one separate array element for each transaction")
         assertContains(prompt, "represent the same transaction")
         assertContains(prompt, "use the finalized amount charged or payable, including tax and tip")
         assertContains(prompt, "Do not add together totals")

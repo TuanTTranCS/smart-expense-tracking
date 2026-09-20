@@ -107,9 +107,12 @@ Goals:
 - ✅ Done: Verify the separated Main and Settings experience on a physical Pixel 7.
 - Extract receipt fields with the selected provider, defaulting to on-device extraction.
 - ✅ Done: In both direct-image and OCR-text prompts, treat matching itemized and finalized receipts as one transaction and extract the finalized amount including tax and tip without summing receipt totals.
+- ✅ Done: Represent distinct transactions from one image as separate `receipts` elements, review and export each independently, and include a detected or manually configured device name in each JSON.
+- ✅ Done: Validate strict remote extraction request JSON and the nested receipts schema, reject trailing-comma regressions, and retry `invalid_json` JSON-schema extraction once without `response_format`; provide a default-off Settings Debug control for raw extraction responses and per-receipt generated handoff JSON.
 - ✅ Done: Configure, test, save, select, edit, and delete persistent OpenAI-compatible provider profiles through Settings, with secure per-profile credentials and local fallback.
 - ✅ Done: Export all saved remote-provider metadata and selector state to a versioned JSON document, and preview/import validated profile files atomically without exporting credentials or changing the current selection.
 - Review and correct extracted data.
+- ✅ Done: Export unchanged, user-confirmed low-confidence receipts with `confirmed` status and user-edited receipts with `manual` status.
 - ✅ Done: After the receipt image succeeds, publish the final Version 2 JSON handoff using Microsoft Graph.
 - ✅ Done: Upload a normalized receipt JPEG below 200 KB first and include its deterministic OneDrive-relative path in the Version 2 JSON.
 - ✅ Done: Preserve one stable expense ID, export timestamp, image path, and JSON name across retries.
@@ -120,6 +123,7 @@ Testing:
 
 - Unit tests for extraction response parsing.
 - ✅ Done: Unit tests for the multiple-receipt prompt contract in both direct-image and OCR-text modes.
+- ✅ Done: Unit tests parse complete image and OCR request JSON and verify the receipt schema, provider errors, Debug persistence, and independent export previews.
 - Unit tests for provider/model selection rules.
 - ✅ Done: Unit tests for provider-configuration JSON round trips, invalid input, credential exclusion, conflict copying, selector preservation, ViewModel confirmation, and atomic Room persistence.
 - Unit tests for OpenAI-compatible request construction, credential redaction, and error mapping.

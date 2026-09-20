@@ -19,30 +19,41 @@ class ReceiptExtractionController(
     private val imageLoader: ReceiptImageLoader,
     private val extractor: ReceiptExtractor,
 ) {
-    fun extract(uri: String, reduceImageIfOversized: Boolean = true): ReceiptReviewState = try {
+    fun extract(uri: String, reduceImageIfOversized: Boolean = true): ReceiptReviewState =
+        extractAll(uri, reduceImageIfOversized).first()
+
+    fun extractAll(uri: String, reduceImageIfOversized: Boolean = true): List<ReceiptReviewState> = try {
         when (val result = extractor.extract(imageLoader.load(uri, reduceImageIfOversized))) {
-            is ReceiptExtractionPipelineResult.Success -> ReceiptReviewState(
-                receiptDate = result.result.receiptDate.toString(),
-                merchantName = result.result.merchantName,
-                totalAmount = result.result.totalAmount.toPlainString(),
-                currency = result.result.currency,
-                extractionStatus = result.result.extractionStatus.wireName(),
-                confidence = result.result.confidence?.toPlainString().orEmpty(),
-                merchantLocation = result.result.merchantLocation.orEmpty(),
-                rawModelOutput = result.result.rawModelOutput,
+            is ReceiptExtractionPipelineResult.Success -> result.results.map { extracted -> ReceiptReviewState(
+                receiptDate = extracted.receiptDate.toString(),
+                merchantName = extracted.merchantName,
+                totalAmount = extracted.totalAmount.toPlainString(),
+                currency = extracted.currency,
+                extractionStatus = extracted.extractionStatus.wireName(),
+                confidence = extracted.confidence?.toPlainString().orEmpty(),
+                merchantLocation = extracted.merchantLocation.orEmpty(),
+                rawModelOutput = extracted.rawModelOutput,
                 message = "Receipt extracted using ${result.mode.name.lowercase().replace('_', ' ')}. Review and correct every field before export.",
                 manualEntryRequired = false,
-            )
+            ) }
 
-            is ReceiptExtractionPipelineResult.Failed -> ReceiptReviewState.manual(
+            is ReceiptExtractionPipelineResult.Failed -> listOf(ReceiptReviewState.manual(
                 result.errors.joinToString(separator = " ").ifBlank { "The receipt output was invalid." },
                 rawModelOutput = result.attempts.lastOrNull()?.parseResult?.rawOutput().orEmpty(),
-            )
+            ))
         }
     } catch (error: RemoteProviderException) {
-        ReceiptReviewState.manual(error.message ?: "The remote provider failed.")
+        listOf(ReceiptReviewState.manual(
+            error.message ?: "The remote provider failed.",
+            rawModelOutput = error.rawResponseBody?.takeIf(String::isNotBlank)
+                ?: error.cause?.message?.takeIf(String::isNotBlank)
+                ?: error.message.orEmpty(),
+        ))
     } catch (error: Exception) {
-        ReceiptReviewState.manual(error.message ?: "The receipt image could not be processed.")
+        listOf(ReceiptReviewState.manual(
+            error.message ?: "The receipt image could not be processed.",
+            rawModelOutput = error.message.orEmpty(),
+        ))
     }
 }
 
@@ -65,7 +76,22 @@ data class ReceiptReviewState(
     val sourceImageUri: String = "",
     val exportExpenseId: String? = null,
     val exportComplete: Boolean = false,
+    val exportJsonPreview: String? = null,
 ) {
+    fun confirmedForExport(): ReceiptReviewState =
+        if (extractionStatus == "low_confidence") copy(extractionStatus = "confirmed") else this
+
+    fun withUserEdits(edited: ReceiptReviewState): ReceiptReviewState {
+        val fieldsChanged = receiptDate != edited.receiptDate ||
+            merchantName != edited.merchantName ||
+            totalAmount != edited.totalAmount ||
+            currency != edited.currency ||
+            merchantLocation != edited.merchantLocation
+        return edited.copy(
+            extractionStatus = if (fieldsChanged) "manual" else extractionStatus,
+        )
+    }
+
     companion object {
         fun manual(message: String, rawModelOutput: String = "") = ReceiptReviewState(
             message = "$message Enter the receipt details manually, or choose another image and retry.",

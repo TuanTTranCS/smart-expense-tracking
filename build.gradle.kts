@@ -27,5 +27,6 @@ tasks.test {
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     testImplementation(kotlin("test-junit5"))
+    testImplementation("org.json:json:20240303")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

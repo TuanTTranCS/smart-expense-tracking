@@ -1,6 +1,7 @@
 package com.hugo.smartexpense.app
 
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,7 +36,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val preferences = getSharedPreferences("model_selector", MODE_PRIVATE)
-        val settingsRepository = SharedPreferencesAppSettingsRepository(preferences)
+        val detectedName = listOf(Build.MANUFACTURER, Build.MODEL).filterNot(String::isNullOrBlank)
+            .joinToString(" ").ifBlank { "Android device" }
+        val settingsRepository = SharedPreferencesAppSettingsRepository(preferences, detectedName)
         val keyStore = AndroidApiKeyStore(this)
         val profileRepository = RoomModelProfileRepository(ModelProfileDatabase.getInstance(this).modelProfileDao())
         val providerConfigDocumentStore = ProviderConfigDocumentStore(contentResolver)
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
                     preferences.edit().putString("source_device_id", it).apply()
                 }
             },
+            sourceDeviceName = { settingsRepository.settings.value.deviceName },
         )
         val profilesFactory = ModelProfilesViewModel.Factory {
             ModelProfilesViewModel(
@@ -87,15 +91,15 @@ class MainActivity : ComponentActivity() {
                     } else {
                         when (val readiness = localReadinessService.check()) {
                             is LocalModelReadinessResult.Ready -> localClientFactory.create()
-                            is LocalModelReadinessResult.NotReady -> return@extract ReceiptReviewState.manual(
+                            is LocalModelReadinessResult.NotReady -> return@extract listOf(ReceiptReviewState.manual(
                                 "${readiness.reason} No receipt data was sent remotely.",
-                            )
+                            ))
                         }
                     }
                     ReceiptExtractionController(
                         imageLoader = imageLoader,
                         extractor = PipelineReceiptExtractor(ReceiptExtractionPipeline(client)),
-                    ).extract(uri, reduceOversizedImages)
+                    ).extractAll(uri, reduceOversizedImages)
                 },
                 startExport = exportController::start,
                 retryExport = exportController::retry,
