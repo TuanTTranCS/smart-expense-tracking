@@ -1,6 +1,6 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-09-14
+Last updated: 2026-09-20
 
 ## Purpose
 
@@ -162,6 +162,8 @@ REQ-UI-004: Navigating between Main and Settings shall preserve receipt extracti
 REQ-UI-005: System Back and Up from Settings shall return to the existing Main destination. If a profile editor contains unsaved metadata or an unsaved API key, Back or Up shall require explicit discard confirmation before closing the editor.
 
 REQ-UI-006: Settings shall provide a persisted, default-off Debug output checkbox. When enabled, Main shall show the raw extraction reply or provider/transport error in a read-only textbox after an extraction attempt, and the exact generated Version 2 handoff JSON in a read-only textbox for each attempted export. Failed uploads shall identify the JSON as not published. Disabling Debug shall hide these fields without changing review or retry state.
+
+REQ-UI-007: After a selected receipt image has loaded and the `REQ-A-002A` preprocessing decision has completed, Main shall show an image-review affordance as a thumbnail or button. Activating it shall display the complete processed image without cropping. The displayed image shall be the same image supplied to extraction: the reduced JPEG when enabled preprocessing reduces a selection larger than 200 KB (204,800 bytes), and otherwise the original selected image. Replacing or clearing the selection shall update or remove the review affordance so a previous receipt is not shown.
 
 ### Handoff File
 
@@ -452,6 +454,8 @@ AC-029: Unit tests and a disposable-workbook Excel COM canary pass before the He
 AC-030: Confirming an unchanged `low_confidence` receipt produces JSON with `extractionStatus: "confirmed"`. Editing any review field before export produces `extractionStatus: "manual"`, and retrying a failed export retains its saved status.
 
 AC-031: A JSON Schema extraction request is valid JSON with an outer receipts array schema; the provider check and receipt extraction both work with their respective schemas. Debug output is hidden by default, exposes the raw response or error when enabled, and shows each generated export JSON with its publication state.
+
+AC-032: After image selection and preprocessing, Main exposes a review thumbnail or button that opens the complete processed receipt image and can be dismissed with Back or a visible close action. With oversized-image reduction enabled, an input larger than 200 KB previews the same sub-200-KB JPEG bytes used for extraction; when reduction is disabled or unnecessary, it previews the original selected bytes. Selecting another receipt replaces the preview and a failed or cleared selection leaves no stale image.
 
 ## Windows implementation verification
 

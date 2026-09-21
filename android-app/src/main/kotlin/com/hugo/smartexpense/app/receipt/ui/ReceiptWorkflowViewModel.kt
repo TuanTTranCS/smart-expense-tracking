@@ -10,6 +10,7 @@ import com.hugo.smartexpense.app.receiptexport.ReceiptExportStatus
 import com.hugo.smartexpense.app.receiptexport.toVersion2Json
 import com.hugo.smartexpense.app.settings.data.AppSettingsRepository
 import com.hugo.smartexpense.extraction.ModelProfile
+import com.hugo.smartexpense.extraction.ReceiptImage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ data class ReceiptWorkflowUiState(
     val extracting: Boolean = false,
     val exporting: Boolean = false,
     val reviews: List<ReceiptReviewState> = emptyList(),
+    val selectedImage: ReceiptImage? = null,
 ) {
     val review: ReceiptReviewState? get() = reviews.firstOrNull()
 }
@@ -32,6 +34,7 @@ class ReceiptWorkflowViewModel(
         uri: String,
         reduceOversizedImages: Boolean,
         remoteProfileSnapshot: ModelProfile?,
+        onImageLoaded: (ReceiptImage) -> Unit,
     ) -> List<ReceiptReviewState>,
     private val startExport: suspend (ReceiptReviewState) -> ReceiptExportRecord,
     private val retryExport: suspend (String) -> ReceiptExportRecord,
@@ -43,10 +46,18 @@ class ReceiptWorkflowViewModel(
     fun importReceipt(uri: String, remoteProfileSnapshot: ModelProfile?) {
         if (uri.isBlank() || mutableUiState.value.extracting || mutableUiState.value.exporting) return
         val reduceSnapshot = settingsRepository.settings.value.reduceOversizedImages
-        mutableUiState.value = mutableUiState.value.copy(extracting = true, reviews = emptyList())
+        mutableUiState.value = mutableUiState.value.copy(
+            extracting = true,
+            reviews = emptyList(),
+            selectedImage = null,
+        )
         viewModelScope.launch {
             val result = runCatching {
-                withContext(operationDispatcher) { extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot) }
+                withContext(operationDispatcher) {
+                    extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot) { image ->
+                        mutableUiState.value = mutableUiState.value.copy(selectedImage = image)
+                    }
+                }
             }.getOrElse { listOf(ReceiptReviewState.manual(it.message ?: "The receipt could not be processed.")) }
             mutableUiState.value = mutableUiState.value.copy(
                 extracting = false,

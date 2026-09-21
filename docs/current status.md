@@ -4,13 +4,15 @@
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
 - ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
 
-Last updated: 2026-09-19
+Last updated: 2026-09-21
 
 ## Overall Status
 
 The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11. The Windows Hermes/PowerShell design is now decision-complete in `docs/3.excel-update-hermes-goal.md`, but its scripts, tests, copied-workbook canary, and paused cron job are not yet implemented.
 
 ## Completed
+
+- ✅ Done: Implemented `REQ-UI-007` and `AC-032`: Main previews the exact processed image supplied to extraction, opens it without cropping, and clears/replaces it across selections while preserving review state and Main/Settings navigation. Unit tests pass, Compose tests compile, and the debug APK assembles on 2026-09-21. Physical-device verification remains pending.
 
 - ✅ Done: Implemented the app-view separation plan with Main and Settings Navigation Compose destinations, Settings-only configuration controls, compact Main provider selection, selected saved-provider verification, local Gemma model readiness checking, contextual OneDrive recovery without routine Disconnect, shared receipt workflow state, persisted preprocessing settings, and protected Settings Back/Up behavior. Added focused unit coverage, compiled Compose tests, assembled the debug APK, and verified against `REQ-UI-001` through `REQ-UI-005` and `AC-022` through `AC-025`. The separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 

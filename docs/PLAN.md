@@ -1,6 +1,6 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-09-14
+Last updated: 2026-09-20
 
 ## Stack Direction
 
@@ -103,6 +103,7 @@ Goals:
 
 - Capture/import receipt image.
 - ✅ Done: Provide a default-enabled option that reduces selected images larger than 200 KB to strictly below 200 KB before extraction.
+- ✅ Done: Add a selected-image review thumbnail that opens the complete post-preprocessing image used for extraction, as detailed in `docs/5.image-review-plan.md`. Physical-device verification remains.
 - ✅ Done: Separate Main receipt operations from Settings configuration while preserving receipt state across navigation; add compact provider verification, contextual OneDrive readiness, and local Gemma model-file readiness checks.
 - ✅ Done: Verify the separated Main and Settings experience on a physical Pixel 7.
 - Extract receipt fields with the selected provider, defaulting to on-device extraction.
@@ -129,6 +130,7 @@ Testing:
 - Unit tests for OpenAI-compatible request construction, credential redaction, and error mapping.
 - Unit tests for handoff schema generation.
 - ✅ Done: Unit tests for receipt-image normalization, paired path generation, upload ordering, and idempotent retry.
+- ✅ Done: Unit and Compose UI tests for processed-image state, preview replacement/clearing, thumbnail activation, and full-image dismissal; Compose tests compile, and device execution remains.
 - Unit tests for validation rules.
 - UI tests for review/edit flow where practical.
 - UI tests for Model Selector behavior where practical.

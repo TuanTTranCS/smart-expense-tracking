@@ -13,6 +13,8 @@ import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ReceiptExtractionControllerTest {
@@ -32,6 +34,79 @@ class ReceiptExtractionControllerTest {
         val reviews = controller.extractAll("content://receipts/two")
         assertEquals(listOf("Shop A", "Shop B"), reviews.map { it.merchantName })
         assertEquals(listOf("12.34", "56.78"), reviews.map { it.totalAmount })
+    }
+
+    @Test
+    fun returnsTheSameLoadedImageToPreviewAndExtractorBeforeExtraction() {
+        val loadedImage = com.hugo.smartexpense.extraction.ReceiptImage("receipt.jpg", byteArrayOf(3, 2, 1), "image/jpeg")
+        val events = mutableListOf<String>()
+        var callbackImage: com.hugo.smartexpense.extraction.ReceiptImage? = null
+        var extractorImage: com.hugo.smartexpense.extraction.ReceiptImage? = null
+        val controller = ReceiptExtractionController(ReceiptImageLoader(FakeSource(loadedImage.bytes))) { image ->
+            extractorImage = image
+            events += "extract"
+            ReceiptExtractionPipelineResult.Failed(emptyList(), emptyList())
+        }
+
+        val result = controller.extractAllWithImage("content://receipts/one") { image ->
+            callbackImage = image
+            events += "loaded"
+        }
+
+        assertSame(result.image, callbackImage)
+        assertSame(callbackImage, extractorImage)
+        assertEquals(listOf("loaded", "extract"), events)
+    }
+
+    @Test
+    fun passesTheProcessedOrOriginalImageToBothPreviewAndExtractor() {
+        val oversized = ByteArray(RECEIPT_IMAGE_SIZE_THRESHOLD_BYTES + 1) { 1 }
+        val reduced = byteArrayOf(8, 7, 6)
+        listOf(
+            ImageLoadCase(oversized, true, reduced, true),
+            ImageLoadCase(byteArrayOf(1, 2), true, byteArrayOf(1, 2), false),
+            ImageLoadCase(oversized, false, oversized, false),
+        ).forEach { case ->
+            var reductions = 0
+            var callbackImage: com.hugo.smartexpense.extraction.ReceiptImage? = null
+            var extractorImage: com.hugo.smartexpense.extraction.ReceiptImage? = null
+            val controller = ReceiptExtractionController(
+                imageLoader = ReceiptImageLoader(
+                    source = FakeSource(case.sourceBytes),
+                    sizeReducer = ReceiptImageSizeReducer { _, _ -> reductions += 1; ReducedReceiptImage(reduced, "image/jpeg") },
+                ),
+                extractor = ReceiptExtractor { image ->
+                    extractorImage = image
+                    ReceiptExtractionPipelineResult.Failed(emptyList(), emptyList())
+                },
+            )
+
+            val result = controller.extractAllWithImage("content://receipts/test", case.reduceEnabled) {
+                callbackImage = it
+            }
+
+            assertSame(result.image, callbackImage)
+            assertSame(callbackImage, extractorImage)
+            assertEquals(case.expectedBytes.toList(), result.image?.bytes?.toList())
+            assertEquals(if (case.shouldReduce) 1 else 0, reductions)
+            if (case.shouldReduce) assertTrue(requireNotNull(result.image).bytes.size < RECEIPT_IMAGE_SIZE_THRESHOLD_BYTES)
+        }
+    }
+
+    @Test
+    fun keepsLoadedImageWhenExtractionFailsAndHasNoImageWhenLoadingFails() {
+        val controller = ReceiptExtractionController(ReceiptImageLoader(FakeSource(byteArrayOf(1)))) {
+            throw IllegalStateException("Extractor unavailable")
+        }
+        assertEquals(byteArrayOf(1).toList(), controller.extractAllWithImage("content://receipts/one").image?.bytes?.toList())
+
+        val failingLoader = ReceiptImageLoader(object : ReceiptImageContentSource {
+            override fun displayName(uri: String): String? = "receipt.jpg"
+            override fun mimeType(uri: String): String? = "image/jpeg"
+            override fun readBytes(uri: String): ByteArray = error("Cannot load")
+        })
+        assertNull(ReceiptExtractionController(failingLoader) { error("not reached") }
+            .extractAllWithImage("content://receipts/failing").image)
     }
 
     @Test
@@ -149,6 +224,13 @@ class ReceiptExtractionControllerTest {
             .withUserEdits(original.copy(merchantName = "Other shop")).extractionStatus)
     }
 }
+
+private data class ImageLoadCase(
+    val sourceBytes: ByteArray,
+    val reduceEnabled: Boolean,
+    val expectedBytes: ByteArray,
+    val shouldReduce: Boolean,
+)
 
 private class FakeSource(private val bytes: ByteArray) : ReceiptImageContentSource {
     override fun displayName(uri: String): String = "receipt.jpg"

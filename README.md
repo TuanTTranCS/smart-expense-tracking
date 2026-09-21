@@ -4,7 +4,7 @@ An Android app for turning receipt photos into reviewed expense records and expo
 
 ## Features
 
-- Import receipt images, review distinct transactions separately, and correct each before export.
+- Import receipt images, review the processed image from Main, then review distinct transactions separately and correct each before export.
 - Confirm low-confidence results as `confirmed`, or export corrected fields as `manual`.
 - Use the privacy-first local LiteRT-LM provider when its Gemma 4 E2B model is installed, or explicitly opt in to a saved OpenAI-compatible provider.
 - Manage multiple provider profiles securely and import/export their configuration without credentials.
