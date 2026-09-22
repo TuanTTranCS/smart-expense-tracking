@@ -143,13 +143,15 @@ Status: ✅ Done (automated verification complete; live provider smoke test pend
 
 ## Gap 8: Selected Receipt Image Review
 
-Status: ✅ Done (automated verification complete; physical-device check pending).
+Status: ✅ Done (automated verification complete; verified on a physical Pixel 7 on 2026-09-21).
 
 - ✅ Done: Defined `REQ-UI-007`, `AC-032`, and the implementation plan in `docs/5.image-review-plan.md`.
 - ✅ Done: Retain the exact post-preprocessing `ReceiptImage` used by extraction in navigation-stable workflow state.
 - ✅ Done: Show an accessible thumbnail after selection and open the complete image without cropping, with Close and Back dismissal.
 - ✅ Done: Clear or replace preview state with each selection attempt and avoid retaining stale receipt images.
-- ✅ Done: Added unit and Compose UI coverage; shared and Android unit suites pass, Compose tests compile, and the debug app assembles on 2026-09-21. Physical-device verification remains pending.
+- ✅ Done: Added unit and Compose UI coverage; shared and Android unit suites pass, Compose tests compile, and the debug app assembles on 2026-09-21. Hugo confirmed the feature on a physical Pixel 7 on 2026-09-21; individual device test scenarios were not recorded.
+
+Zoom extension status: ✅ Done (automated verification complete on 2026-09-21; verified on a physical Pixel 7 on 2026-09-22). `REQ-UI-008` and `AC-033` now have pinch-to-zoom, bounded panning, accessible Zoom in/Zoom out controls, and reset on reopening or replacement in the full-screen viewer. Pure transform and Android unit tests pass, Compose UI tests compile, and the debug APK assembles. Display decoding uses the processed in-memory image with a 4096-pixel longest-edge and 12-million-pixel memory bound.
 
 ## Gap 5: Receipt Image and Optional Photo Link
 

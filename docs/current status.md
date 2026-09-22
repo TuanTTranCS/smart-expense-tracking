@@ -12,7 +12,9 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 ## Completed
 
-- ✅ Done: Implemented `REQ-UI-007` and `AC-032`: Main previews the exact processed image supplied to extraction, opens it without cropping, and clears/replaces it across selections while preserving review state and Main/Settings navigation. Unit tests pass, Compose tests compile, and the debug APK assembles on 2026-09-21. Physical-device verification remains pending.
+- ✅ Done: Implemented `REQ-UI-008` and `AC-033` image-viewer zoom with pinch gestures, bounded pan, fixed accessible Zoom in/Zoom out controls, and reset on reopening or image replacement. Pure transform unit tests and Android unit tests pass, Compose UI tests compile, and the debug APK assembles on 2026-09-21. Hugo verified zoom gesture and text legibility on a physical Pixel 7 on 2026-09-22.
+
+- ✅ Done: Implemented `REQ-UI-007` and `AC-032`: Main previews the exact processed image supplied to extraction, opens it without cropping, and clears/replaces it across selections while preserving review state and Main/Settings navigation. Unit tests pass, Compose tests compile, and the debug APK assembles on 2026-09-21. Hugo confirmed the feature on a physical Pixel 7 on 2026-09-21; individual device test scenarios were not recorded.
 
 - ✅ Done: Implemented the app-view separation plan with Main and Settings Navigation Compose destinations, Settings-only configuration controls, compact Main provider selection, selected saved-provider verification, local Gemma model readiness checking, contextual OneDrive recovery without routine Disconnect, shared receipt workflow state, persisted preprocessing settings, and protected Settings Back/Up behavior. Added focused unit coverage, compiled Compose tests, assembled the debug APK, and verified against `REQ-UI-001` through `REQ-UI-005` and `AC-022` through `AC-025`. The separated app was successfully tested on a physical Pixel 7 on 2026-09-11.
 
