@@ -9,6 +9,7 @@ import com.hugo.smartexpense.app.settings.data.AppSettingsRepository
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.RemoteInputMode
 import com.hugo.smartexpense.extraction.RemoteStructuredOutputFormat
+import com.hugo.smartexpense.extraction.ReceiptImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ import org.junit.Before
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReceiptWorkflowViewModelTest {
@@ -32,9 +34,13 @@ class ReceiptWorkflowViewModelTest {
 
     @Test fun distinctReceiptsKeepIndependentReviewAndExportStatus() = runTest(dispatcher) {
         val exported = mutableListOf<Pair<String, String>>()
+        val image = selectedImage(byteArrayOf(4, 5))
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = FakeSettingsRepository(AppSettings()),
-            extractReceipt = { _, _, _ -> listOf(validReview(), validReview().copy(merchantName = "Second shop", totalAmount = "24.50")) },
+            extractReceipt = { _, _, _, onImageLoaded ->
+                onImageLoaded(image)
+                listOf(validReview(), validReview().copy(merchantName = "Second shop", totalAmount = "24.50"))
+            },
             startExport = {
                 exported += it.merchantName to it.extractionStatus
                 sampleRecord().copy(expenseId = "expense-${exported.size}", status = ReceiptExportStatus.EXPORTED)
@@ -45,6 +51,7 @@ class ReceiptWorkflowViewModelTest {
         viewModel.importReceipt("content://two-receipts", null)
         advanceUntilIdle()
         assertEquals(2, viewModel.uiState.value.reviews.size)
+        assertEquals(image, viewModel.uiState.value.selectedImage)
         viewModel.updateReview(1, viewModel.uiState.value.reviews[1].copy(merchantName = "Corrected shop"))
         viewModel.export(0)
         advanceUntilIdle()
@@ -70,9 +77,10 @@ class ReceiptWorkflowViewModelTest {
         var capturedReduction: Boolean? = null
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = settings,
-            extractReceipt = { _, reduce, _ ->
+            extractReceipt = { _, reduce, _, onImageLoaded ->
                 capturedReduction = reduce
                 settings.setReduceOversizedImages(false)
+                onImageLoaded(selectedImage(byteArrayOf(1, 2, 3)))
                 listOf(ReceiptReviewState(merchantName = "Market", message = "Review"))
             },
             startExport = { error("not used") },
@@ -86,6 +94,7 @@ class ReceiptWorkflowViewModelTest {
         assertEquals(true, capturedReduction)
         assertEquals("Market", viewModel.uiState.value.review?.merchantName)
         assertEquals("content://receipt", viewModel.uiState.value.review?.sourceImageUri)
+        assertEquals(byteArrayOf(1, 2, 3).toList(), viewModel.uiState.value.selectedImage?.bytes?.toList())
         assertFalse(viewModel.uiState.value.extracting)
     }
 
@@ -96,7 +105,7 @@ class ReceiptWorkflowViewModelTest {
         var extractedWith: ModelProfile? = null
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = settings,
-            extractReceipt = { _, _, snapshot -> extractedWith = snapshot; listOf(ReceiptReviewState()) },
+            extractReceipt = { _, _, snapshot, _ -> extractedWith = snapshot; listOf(ReceiptReviewState()) },
             startExport = { error("not used") }, retryExport = { error("not used") },
             operationDispatcher = dispatcher,
         )
@@ -113,7 +122,7 @@ class ReceiptWorkflowViewModelTest {
         var exportedStatus: String? = null
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = FakeSettingsRepository(AppSettings()),
-            extractReceipt = { _, _, _ -> listOf(validReview()) },
+            extractReceipt = { _, _, _, _ -> listOf(validReview()) },
             startExport = {
                 exportedStatus = it.extractionStatus
                 sampleRecord().copy(status = ReceiptExportStatus.EXPORTED, extractionStatus = it.extractionStatus)
@@ -135,7 +144,7 @@ class ReceiptWorkflowViewModelTest {
         var exportedStatus: String? = null
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = FakeSettingsRepository(AppSettings()),
-            extractReceipt = { _, _, _ -> listOf(validReview()) },
+            extractReceipt = { _, _, _, _ -> listOf(validReview()) },
             startExport = {
                 exportedStatus = it.extractionStatus
                 sampleRecord().copy(status = ReceiptExportStatus.EXPORTED, extractionStatus = it.extractionStatus)
@@ -158,7 +167,7 @@ class ReceiptWorkflowViewModelTest {
         var retriedId: String? = null
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = FakeSettingsRepository(AppSettings()),
-            extractReceipt = { _, _, _ -> listOf(validReview()) },
+            extractReceipt = { _, _, _, _ -> listOf(validReview()) },
             startExport = { sampleRecord().copy(status = ReceiptExportStatus.FAILED, extractionStatus = it.extractionStatus) },
             retryExport = {
                 retriedId = it
@@ -187,7 +196,7 @@ class ReceiptWorkflowViewModelTest {
     @Test fun failedValidationHasNoExportJsonPreview() = runTest(dispatcher) {
         val viewModel = ReceiptWorkflowViewModel(
             settingsRepository = FakeSettingsRepository(AppSettings()),
-            extractReceipt = { _, _, _ -> listOf(validReview()) },
+            extractReceipt = { _, _, _, _ -> listOf(validReview()) },
             startExport = { error("Invalid amount") },
             retryExport = { error("not used") },
             operationDispatcher = dispatcher,
@@ -200,10 +209,84 @@ class ReceiptWorkflowViewModelTest {
         assertEquals("Invalid amount", viewModel.uiState.value.review?.message)
     }
 
+    @Test fun replacementClearsPreviewThenKeepsTheNewImageAfterExtractionFailure() = runTest(dispatcher) {
+        val first = selectedImage(byteArrayOf(1))
+        val replacement = selectedImage(byteArrayOf(2))
+        var calls = 0
+        val viewModel = ReceiptWorkflowViewModel(
+            settingsRepository = FakeSettingsRepository(AppSettings()),
+            extractReceipt = { _, _, _, onImageLoaded ->
+                calls += 1
+                onImageLoaded(if (calls == 1) first else replacement)
+                if (calls == 2) error("Model unavailable") else listOf(validReview())
+            },
+            startExport = { error("not used") }, retryExport = { error("not used") },
+            operationDispatcher = dispatcher,
+        )
+
+        viewModel.importReceipt("content://first", null)
+        advanceUntilIdle()
+        assertEquals(first, viewModel.uiState.value.selectedImage)
+
+        viewModel.importReceipt("content://replacement", null)
+        assertEquals(null, viewModel.uiState.value.selectedImage)
+        advanceUntilIdle()
+
+        assertEquals(replacement, viewModel.uiState.value.selectedImage)
+        assertTrue(viewModel.uiState.value.review?.message.orEmpty().contains("Model unavailable"))
+        assertTrue(viewModel.uiState.value.review?.manualEntryRequired == true)
+    }
+
+    @Test fun loadFailureClearsPreviewAndBlankImportKeepsCurrentWorkflow() = runTest(dispatcher) {
+        val image = selectedImage(byteArrayOf(7))
+        var failLoading = false
+        val viewModel = ReceiptWorkflowViewModel(
+            settingsRepository = FakeSettingsRepository(AppSettings()),
+            extractReceipt = { _, _, _, onImageLoaded ->
+                if (failLoading) error("Image unavailable")
+                onImageLoaded(image)
+                listOf(validReview())
+            },
+            startExport = { error("not used") }, retryExport = { error("not used") },
+            operationDispatcher = dispatcher,
+        )
+
+        viewModel.importReceipt("content://first", null)
+        advanceUntilIdle()
+        val beforeCancellation = viewModel.uiState.value
+        viewModel.importReceipt("", null)
+        assertEquals(beforeCancellation, viewModel.uiState.value)
+
+        failLoading = true
+        viewModel.importReceipt("content://failed", null)
+        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.selectedImage)
+        assertTrue(viewModel.uiState.value.review?.message.orEmpty().contains("Image unavailable"))
+        assertTrue(viewModel.uiState.value.review?.manualEntryRequired == true)
+    }
+
+    @Test fun previewStaysAvailableWhileTheLoadedReceiptIsReviewed() = runTest(dispatcher) {
+        val image = selectedImage(byteArrayOf(9))
+        val viewModel = ReceiptWorkflowViewModel(
+            settingsRepository = FakeSettingsRepository(AppSettings()),
+            extractReceipt = { _, _, _, onImageLoaded -> onImageLoaded(image); listOf(validReview()) },
+            startExport = { error("not used") }, retryExport = { error("not used") },
+            operationDispatcher = dispatcher,
+        )
+
+        viewModel.importReceipt("content://receipt", null)
+        advanceUntilIdle()
+        viewModel.updateReview(0, requireNotNull(viewModel.uiState.value.review).copy(merchantName = "Corrected shop"))
+
+        assertEquals(image, viewModel.uiState.value.selectedImage)
+    }
+
     private fun validReview() = ReceiptReviewState(
         receiptDate = "2026-09-05", merchantName = "Shop", totalAmount = "12.34",
         extractionStatus = "low_confidence", sourceImageUri = "content://receipt",
     )
+
+    private fun selectedImage(bytes: ByteArray) = ReceiptImage("receipt.jpg", bytes, "image/jpeg")
 
     private fun profile(id: String) = ModelProfile(
         id, id, "https://example.test/v1", "model", RemoteInputMode.DIRECT_IMAGE,

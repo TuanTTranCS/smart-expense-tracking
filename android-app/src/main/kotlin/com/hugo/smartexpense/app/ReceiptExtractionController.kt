@@ -19,11 +19,35 @@ class ReceiptExtractionController(
     private val imageLoader: ReceiptImageLoader,
     private val extractor: ReceiptExtractor,
 ) {
+    data class OperationResult(
+        val image: ReceiptImage?,
+        val reviews: List<ReceiptReviewState>,
+    )
+
     fun extract(uri: String, reduceImageIfOversized: Boolean = true): ReceiptReviewState =
         extractAll(uri, reduceImageIfOversized).first()
 
-    fun extractAll(uri: String, reduceImageIfOversized: Boolean = true): List<ReceiptReviewState> = try {
-        when (val result = extractor.extract(imageLoader.load(uri, reduceImageIfOversized))) {
+    fun extractAll(uri: String, reduceImageIfOversized: Boolean = true): List<ReceiptReviewState> =
+        extractAllWithImage(uri, reduceImageIfOversized).reviews
+
+    fun extractAllWithImage(
+        uri: String,
+        reduceImageIfOversized: Boolean = true,
+        onImageLoaded: (ReceiptImage) -> Unit = {},
+    ): OperationResult {
+        var loadedImage: ReceiptImage? = null
+        return try {
+            val image = imageLoader.load(uri, reduceImageIfOversized)
+            loadedImage = image
+            onImageLoaded(image)
+            extractLoadedImage(image)
+        } catch (error: Exception) {
+            operationFailure(loadedImage, error)
+        }
+    }
+
+    fun extractLoadedImage(image: ReceiptImage): OperationResult = try {
+        OperationResult(image, when (val result = extractor.extract(image)) {
             is ReceiptExtractionPipelineResult.Success -> result.results.map { extracted -> ReceiptReviewState(
                 receiptDate = extracted.receiptDate.toString(),
                 merchantName = extracted.merchantName,
@@ -41,20 +65,25 @@ class ReceiptExtractionController(
                 result.errors.joinToString(separator = " ").ifBlank { "The receipt output was invalid." },
                 rawModelOutput = result.attempts.lastOrNull()?.parseResult?.rawOutput().orEmpty(),
             ))
-        }
-    } catch (error: RemoteProviderException) {
-        listOf(ReceiptReviewState.manual(
+        })
+    } catch (error: Exception) {
+        operationFailure(image, error)
+    }
+
+    private fun operationFailure(image: ReceiptImage?, error: Exception): OperationResult =
+        if (error is RemoteProviderException) {
+            OperationResult(image, listOf(ReceiptReviewState.manual(
             error.message ?: "The remote provider failed.",
             rawModelOutput = error.rawResponseBody?.takeIf(String::isNotBlank)
                 ?: error.cause?.message?.takeIf(String::isNotBlank)
                 ?: error.message.orEmpty(),
-        ))
-    } catch (error: Exception) {
-        listOf(ReceiptReviewState.manual(
+            )))
+        } else {
+            OperationResult(image, listOf(ReceiptReviewState.manual(
             error.message ?: "The receipt image could not be processed.",
             rawModelOutput = error.message.orEmpty(),
-        ))
-    }
+            )))
+        }
 }
 
 private fun com.hugo.smartexpense.extraction.ParseResult.rawOutput(): String = when (this) {

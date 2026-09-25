@@ -1,8 +1,15 @@
 package com.hugo.smartexpense.app.receipt.ui
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,14 +25,27 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.window.Dialog
 import com.hugo.smartexpense.app.ReceiptReviewState
 import com.hugo.smartexpense.app.graphauth.GraphAuthenticationUiState
 import com.hugo.smartexpense.app.graphauth.OneDrivePresentation
@@ -33,7 +53,10 @@ import com.hugo.smartexpense.app.graphauth.OneDriveRecoveryAction
 import com.hugo.smartexpense.app.modelprofile.domain.SelectedReceiptModelProviderResolver
 import com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesUiState
 import com.hugo.smartexpense.app.modelprofile.ui.ProviderVerificationState
+import com.hugo.smartexpense.extraction.ReceiptImage
 import com.hugo.smartexpense.extraction.ModelProfile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ReceiptWorkflowScreen(
@@ -83,6 +106,7 @@ fun ReceiptWorkflowScreen(
             enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy,
             onClick = onChooseReceipt,
         ) { Text(if (workflowState.extracting) "Extracting" else "Choose receipt") }
+        SelectedReceiptImageReview(workflowState.selectedImage)
         val rawOutput = workflowState.reviews.firstOrNull()?.rawModelOutput.orEmpty()
         if (debugOutputEnabled && rawOutput.isNotBlank()) {
             DebugOutputField("Raw extraction response", rawOutput)
@@ -93,6 +117,177 @@ fun ReceiptWorkflowScreen(
                 { onReviewChange(index, it) }, { onExport(index) }, debugOutputEnabled)
         }
     }
+}
+
+private const val SelectedReceiptPreviewDescription = "Review selected receipt image"
+
+@Composable
+private fun SelectedReceiptImageReview(selectedImage: ReceiptImage?) {
+    if (selectedImage == null) return
+
+    // Recreate this subtree for each image so a prior bitmap cannot render while a replacement decodes.
+    key(selectedImage) {
+        var viewerOpen by remember { mutableStateOf(false) }
+        LaunchedEffect(selectedImage) { viewerOpen = false }
+        val display by produceState<ReceiptImageDisplay>(
+            initialValue = ReceiptImageDisplay.Loading,
+            key1 = selectedImage,
+        ) {
+            value = withContext(Dispatchers.Default) {
+                runCatching {
+                    decodeReceiptPreview(selectedImage.bytes)
+                        ?.asImageBitmap()
+                        ?.let(ReceiptImageDisplay::Available)
+                        ?: ReceiptImageDisplay.Unavailable
+                }.getOrDefault(ReceiptImageDisplay.Unavailable)
+            }
+        }
+
+        when (val current = display) {
+            ReceiptImageDisplay.Loading -> Text("Preparing selected image preview")
+            ReceiptImageDisplay.Unavailable -> Text(
+                "Selected image preview is unavailable. Choose the receipt again to review it.",
+            )
+            is ReceiptImageDisplay.Available -> {
+                Card(
+                    Modifier.fillMaxWidth()
+                        .clickable { viewerOpen = true }
+                        .semantics { contentDescription = SelectedReceiptPreviewDescription },
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Review selected image", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.foundation.Image(
+                            bitmap = current.bitmap,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Black),
+                        )
+                    }
+                }
+                if (viewerOpen) {
+                    SelectedReceiptImageViewer(current.bitmap) { viewerOpen = false }
+                }
+            }
+        }
+    }
+}
+
+private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    // A 4x viewer needs more detail than the compact preview. Cap decoded memory at roughly
+    // 48 MiB (12 million ARGB pixels) and the longest edge at 4096 px.
+    while (
+        bounds.outWidth / sampleSize > 4096 ||
+        bounds.outHeight / sampleSize > 4096 ||
+        bounds.outWidth.toLong() / sampleSize * (bounds.outHeight.toLong() / sampleSize) > 12_000_000L
+    ) {
+        sampleSize *= 2
+    }
+    return BitmapFactory.decodeByteArray(
+        bytes,
+        0,
+        bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sampleSize },
+    )
+}
+
+@Composable
+private fun SelectedReceiptImageViewer(
+    image: androidx.compose.ui.graphics.ImageBitmap,
+    onClose: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        var viewport by remember { mutableStateOf(IntSize.Zero) }
+        var transform by remember { mutableStateOf(ReceiptImageViewerTransform()) }
+        val imageWidth = image.width.toFloat()
+        val imageHeight = image.height.toFloat()
+        val viewportWidth = viewport.width.toFloat()
+        val viewportHeight = viewport.height.toFloat()
+        Box(Modifier.fillMaxSize().background(Color.Black).padding(24.dp)) {
+            Box(
+                Modifier.fillMaxSize().clipToBounds().onSizeChanged {
+                    viewport = it
+                    transform = transform.bounded(it.width.toFloat(), it.height.toFloat(), imageWidth, imageHeight)
+                }.pointerInput(image, viewport) {
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        transform = transform.zoomAround(
+                            factor = zoom,
+                            focalX = centroid.x,
+                            focalY = centroid.y,
+                            viewportWidth = viewportWidth,
+                            viewportHeight = viewportHeight,
+                            imageWidth = imageWidth,
+                            imageHeight = imageHeight,
+                        ).panBy(
+                            deltaX = pan.x,
+                            deltaY = pan.y,
+                            viewportWidth = viewportWidth,
+                            viewportHeight = viewportHeight,
+                            imageWidth = imageWidth,
+                            imageHeight = imageHeight,
+                        )
+                    }
+                },
+            ) {
+            androidx.compose.foundation.Image(
+                bitmap = image,
+                contentDescription = "Selected receipt image",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = transform.scale
+                    scaleY = transform.scale
+                    translationX = transform.offsetX
+                    translationY = transform.offsetY
+                },
+            )
+            }
+            Column(
+                Modifier.align(Alignment.TopStart),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val canZoomIn = transform.scale < ReceiptImageViewerTransform.MAX_SCALE
+                TextButton(
+                    onClick = {
+                        transform = transform.zoomBy(
+                            ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
+                            viewportWidth, viewportHeight, imageWidth, imageHeight,
+                        )
+                    },
+                    enabled = canZoomIn,
+                    modifier = Modifier.semantics { contentDescription = "Zoom in" },
+                ) { Text("Zoom in", color = if (canZoomIn) Color.White else Color.Gray) }
+                val canZoomOut = transform.scale > ReceiptImageViewerTransform.MIN_SCALE
+                TextButton(
+                    onClick = {
+                        transform = transform.zoomBy(
+                            1f / ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
+                            viewportWidth, viewportHeight, imageWidth, imageHeight,
+                        )
+                    },
+                    enabled = canZoomOut,
+                    modifier = Modifier.semantics { contentDescription = "Zoom out" },
+                ) { Text("Zoom out", color = if (canZoomOut) Color.White else Color.Gray) }
+            }
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .semantics { contentDescription = "Close selected receipt image" },
+            ) { Text("Close", color = Color.White) }
+        }
+    }
+}
+
+private sealed interface ReceiptImageDisplay {
+    data object Loading : ReceiptImageDisplay
+    data object Unavailable : ReceiptImageDisplay
+    data class Available(val bitmap: androidx.compose.ui.graphics.ImageBitmap) : ReceiptImageDisplay
 }
 
 private fun ModelProfilesUiState.selectedEffectiveProviderId(): String =

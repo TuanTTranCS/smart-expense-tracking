@@ -85,21 +85,23 @@ class MainActivity : ComponentActivity() {
         val workflowFactory = ReceiptWorkflowViewModel.Factory {
             ReceiptWorkflowViewModel(
                 settingsRepository = settingsRepository,
-                extractReceipt = extract@{ uri, reduceOversizedImages, remoteProfileSnapshot ->
+                extractReceipt = { uri, reduceOversizedImages, remoteProfileSnapshot, onImageLoaded ->
+                    val image = imageLoader.load(uri, reduceOversizedImages)
+                    onImageLoaded(image)
                     val client = if (remoteProfileSnapshot != null) {
                         remoteClientFactory.create(remoteProfileSnapshot)
                     } else {
                         when (val readiness = localReadinessService.check()) {
                             is LocalModelReadinessResult.Ready -> localClientFactory.create()
-                            is LocalModelReadinessResult.NotReady -> return@extract listOf(ReceiptReviewState.manual(
+                            is LocalModelReadinessResult.NotReady -> throw IllegalStateException(
                                 "${readiness.reason} No receipt data was sent remotely.",
-                            ))
+                            )
                         }
                     }
                     ReceiptExtractionController(
                         imageLoader = imageLoader,
                         extractor = PipelineReceiptExtractor(ReceiptExtractionPipeline(client)),
-                    ).extractAll(uri, reduceOversizedImages)
+                    ).extractLoadedImage(image).reviews
                 },
                 startExport = exportController::start,
                 retryExport = exportController::retry,
