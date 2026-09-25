@@ -292,7 +292,8 @@ function Move-HermesHandoffWithSidecar {
 }
 
 function Enter-HermesRunLock {
-    param([string]$Name='Global\SmartExpenseTracking.HermesExcelUpdate')
+    param([string]$Name)
+    if([string]::IsNullOrWhiteSpace($Name)){$Name=if([string]::IsNullOrWhiteSpace($env:SMART_EXPENSE_RUN_LOCK_NAME)){'Global\SmartExpenseTracking.HermesExcelUpdate'}else{$env:SMART_EXPENSE_RUN_LOCK_NAME}}
     $mutex = [Threading.Mutex]::new($false, $Name)
     if (-not $mutex.WaitOne(0)) { $mutex.Dispose(); return $null }
     return $mutex
@@ -456,9 +457,11 @@ function Invoke-HermesExcelWorkbookUpdate {
 }
 
 function New-HermesResultItem {
-    param([string]$FileName,[string]$ExpenseId,[string]$Outcome,[string]$ReasonCode,[string]$Message,[string]$Sheet,[object]$Row)
+    param([string]$FileName,[string]$ExpenseId,[string]$Outcome,[string]$ReasonCode,[string]$Message,[string]$Sheet,[object]$Row,[string]$SourceDeviceName,[string]$Merchant,[object]$Amount,[object]$ReceiptDate,[string]$Currency)
     $item=[ordered]@{fileName=$FileName;outcome=$Outcome;reasonCode=$ReasonCode;message=$Message}
-    if($ExpenseId){$item.expenseId=$ExpenseId};if($Sheet){$item.sheet=$Sheet};if($null -ne $Row){$item.row=$Row};return [pscustomobject]$item
+    if($ExpenseId){$item.expenseId=$ExpenseId};if($Sheet){$item.sheet=$Sheet};if($null -ne $Row){$item.row=$Row};if(-not [string]::IsNullOrWhiteSpace($SourceDeviceName)){$item.sourceDeviceName=$SourceDeviceName}
+    if(-not [string]::IsNullOrWhiteSpace($Merchant)){$item.merchant=$Merchant};if($null -ne $Amount){$item.amount=(ConvertTo-HermesMoney $Amount)};if($null -ne $ReceiptDate){$item.receiptDate=([datetime]$ReceiptDate).ToString('yyyy-MM-dd',$script:Invariant)};if(-not [string]::IsNullOrWhiteSpace($Currency)){$item.currency=$Currency}
+    return [pscustomobject]$item
 }
 
 function Format-HermesOutput {
@@ -468,9 +471,12 @@ function Format-HermesOutput {
     $discovered=&$getCount 'discovered';$failed=&$getCount 'failed';$deferred=&$getCount 'deferred'
     if($discovered -eq 0 -and $failed -eq 0 -and $deferred -eq 0){return '[SILENT]'}
     $inserted=&$getCount 'inserted';$exact=&$getCount 'exactDuplicate';$review=&$getCount 'review';$invalid=&$getCount 'invalidError'
-    $problems=@($Result.items|Where-Object {$_.outcome -in @('review','error','deferred','failed') -or $_.reasonCode -match 'structural_warning'}|ForEach-Object { if($_.fileName){"$($_.fileName):$($_.reasonCode)"}else{"processor:$($_.reasonCode)"} })
-    $suffix=if($problems.Count -gt 0){'; problems='+($problems -join ',')}else{''}
-    return "Smart Expense: discovered=$discovered; inserted=$inserted; exactDuplicate=$exact; review=$review; invalidError=$invalid; deferred=$deferred; failed=$failed$suffix"
+    $lines=[Collections.Generic.List[string]]::new();$lines.Add('## Smart Expense Update');$lines.Add('');$lines.Add("**Summary:** $discovered received · $inserted added · $exact duplicate · $review needs review · $invalid invalid · $deferred deferred · $failed failed")
+    $orders=@($Result.items|Where-Object {$_.PSObject.Properties['merchant'] -and $_.PSObject.Properties['amount'] -and $_.PSObject.Properties['receiptDate']})
+    if($orders.Count -gt 0){$lines.Add('');$lines.Add('### Order details');foreach($order in $orders){$currency=if($order.PSObject.Properties['currency'] -and -not [string]::IsNullOrWhiteSpace([string]$order.currency)){$order.currency}else{'CAD'};$status=($order.outcome -replace '_',' ');$lines.Add(("- **{0}** — {1} {2:N2} on {3} _(Status: {4})_" -f $order.merchant,$currency,[decimal]$order.amount,$order.receiptDate,$status))}}
+    $problems=@($Result.items|Where-Object {$_.outcome -in @('review','error','deferred','failed') -or $_.reasonCode -match 'structural_warning'}|ForEach-Object { if($_.fileName){"$($_.fileName): $($_.reasonCode)"}else{"Processor: $($_.reasonCode)"} })
+    if($problems.Count -gt 0){$lines.Add('');$lines.Add('### Attention');foreach($problem in $problems){$lines.Add("- $problem")}}
+    return ($lines -join [Environment]::NewLine)
 }
 
 function Invoke-HermesProcessor {
@@ -480,7 +486,7 @@ function Invoke-HermesProcessor {
         [Parameter(Mandatory)][string]$StatePath,[Parameter(Mandatory)][string]$LogPath,[switch]$DryRun,
         [scriptblock]$WorkbookUpdater,[scriptblock]$StateWriter,[scriptblock]$ArchiveMover,[scriptblock]$SidecarWriter,[scriptblock]$NowProvider
     )
-    $started=if($NowProvider){&$NowProvider}else{[datetimeoffset]::UtcNow};$counts=[ordered]@{discovered=0;inserted=0;exactDuplicate=0;review=0;invalidError=0;deferred=0;failed=0};$items=[Collections.Generic.List[object]]::new();$lock=Enter-HermesRunLock
+    $started=if($NowProvider){&$NowProvider}else{[datetimeoffset]::UtcNow};$counts=[ordered]@{discovered=0;inserted=0;exactDuplicate=0;review=0;invalidError=0;deferred=0;failed=0};$items=[Collections.Generic.List[object]]::new();$orderDetails=@{};$lock=Enter-HermesRunLock
     $result=$null
     try {
         if($null -eq $lock){$counts.deferred=1;$items.Add((New-HermesResultItem $null $null 'deferred' 'processor_locked' 'Another processor run is active.' $null $null));$result=[pscustomobject]@{schemaVersion=1;startedAt=$started.ToString('o');completedAt=[datetimeoffset]::UtcNow.ToString('o');outcome='deferred';counts=[pscustomobject]$counts;items=@($items)};if(-not $DryRun){$logDirectory=Split-Path -Parent $LogPath;New-Item -ItemType Directory -Force -Path $logDirectory|Out-Null;($result|ConvertTo-Json -Depth 12 -Compress)|Add-Content -LiteralPath $LogPath -Encoding utf8};return $result}
@@ -491,14 +497,15 @@ function Invoke-HermesProcessor {
             try{$payload=Get-Content -Raw -LiteralPath $file.FullName -ErrorAction Stop|ConvertFrom-Json -DateKind String}catch{$item=New-HermesResultItem $file.Name $null 'error' 'invalid_json' $_.Exception.Message $null $null;$items.Add($item);$counts.invalidError++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_error';Move-HermesHandoff $file.FullName $dest|Out-Null;Write-HermesSidecar $dest $file.Name 'error' 'invalid_json' $item.message|Out-Null};continue}
             $valid=Test-HermesVersion2Handoff $payload $file.Name $root
             if(-not $valid.Valid){$item=New-HermesResultItem $file.Name $null 'error' $valid.ReasonCode $valid.Message $null $null;$items.Add($item);$counts.invalidError++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_error';Move-HermesHandoff $file.FullName $dest|Out-Null;Write-HermesSidecar $dest $file.Name 'error' $valid.ReasonCode $valid.Message|Out-Null};continue}
+            $orderDetails[$file.Name]=[pscustomobject]@{merchant=$valid.MerchantName;amount=$valid.Amount;receiptDate=$valid.ReceiptDate;currency=$valid.Currency}
             if([string]$payload.currency -cne 'CAD'){
-                $item=New-HermesResultItem $file.Name $valid.ExpenseId 'review' 'non_cad' 'Only CAD handoffs may change the workbook.' $valid.ReceiptMonth $null
+                $item=New-HermesResultItem $file.Name $valid.ExpenseId 'review' 'non_cad' 'Only CAD handoffs may change the workbook.' $valid.ReceiptMonth $null -SourceDeviceName ([string]$payload.sourceDeviceName)
                 if(-not $DryRun){
                     try{
                         $dest=Join-Path $inbox 'receipt_jsons_review'
                         Move-HermesHandoffWithSidecar -SourcePath $file.FullName -DestinationFolder $dest -Outcome 'review' -ReasonCode 'non_cad' -Message $item.message -ArchiveMover $ArchiveMover -SidecarWriter $SidecarWriter|Out-Null
                     }catch{
-                        $items.Add((New-HermesResultItem $file.Name $valid.ExpenseId 'failed' 'archive_failed' $_.Exception.Message $valid.ReceiptMonth $null))
+                        $items.Add((New-HermesResultItem $file.Name $valid.ExpenseId 'failed' 'archive_failed' $_.Exception.Message $valid.ReceiptMonth $null -SourceDeviceName ([string]$payload.sourceDeviceName)))
                         $counts.failed++
                         continue
                     }
@@ -507,19 +514,19 @@ function Invoke-HermesProcessor {
                 $counts.review++
                 continue
             }
-            $key=$valid.ExpenseId.ToString();if($state.records.Contains($key)){$record=$state.records[$key];$item=New-HermesResultItem $file.Name $key 'exact_duplicate' 'already_processed' 'expenseId was already completed; no workbook write was attempted.' $record.sheet $record.row;$items.Add($item);$counts.exactDuplicate++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_done';Move-HermesHandoff $file.FullName $dest -StateProvesCompletion|Out-Null};continue}
+            $key=$valid.ExpenseId.ToString();if($state.records.Contains($key)){$record=$state.records[$key];$item=New-HermesResultItem $file.Name $key 'exact_duplicate' 'already_processed' 'expenseId was already completed; no workbook write was attempted.' $record.sheet $record.row -SourceDeviceName ([string]$payload.sourceDeviceName);$items.Add($item);$counts.exactDuplicate++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_done';Move-HermesHandoff $file.FullName $dest -StateProvesCompletion|Out-Null};continue}
             $eligible.Add([pscustomobject]@{FileName=$file.Name;Path=$file.FullName;Payload=$payload;Validation=$valid})
         }
         if($eligible.Count -gt 0){
             if(-not $WorkbookUpdater){$WorkbookUpdater={param($path,$work,$dry) Invoke-HermesExcelWorkbookUpdate -WorkbookPath $path -Items $work -DryRun:$dry}}
-            try{$update=&$WorkbookUpdater $workbook @($eligible) $DryRun.IsPresent}catch{$updateError=$_.Exception.Message;$isDeferred=$updateError -match 'workbook_|summary_|row_template|no_earlier|read_only|locked|capacity|structure|unavailable';$failureOutcome=if($isDeferred){'deferred'}else{'failed'};$failureReason=if($isDeferred){'workbook_deferred'}else{'workbook_update_failed'};foreach($candidate in $eligible){$item=New-HermesResultItem $candidate.FileName $candidate.Validation.ExpenseId $failureOutcome $failureReason $updateError $candidate.Validation.ReceiptMonth $null;$items.Add($item);if($isDeferred){$counts.deferred++}else{$counts.failed++}};$update=$null}
+            try{$update=&$WorkbookUpdater $workbook @($eligible) $DryRun.IsPresent}catch{$updateError=$_.Exception.Message;$isDeferred=$updateError -match 'workbook_|summary_|row_template|no_earlier|read_only|locked|capacity|structure|unavailable';$failureOutcome=if($isDeferred){'deferred'}else{'failed'};$failureReason=if($isDeferred){'workbook_deferred'}else{'workbook_update_failed'};foreach($candidate in $eligible){$item=New-HermesResultItem $candidate.FileName $candidate.Validation.ExpenseId $failureOutcome $failureReason $updateError $candidate.Validation.ReceiptMonth $null -SourceDeviceName ([string]$candidate.Payload.sourceDeviceName);$items.Add($item);if($isDeferred){$counts.deferred++}else{$counts.failed++}};$update=$null}
             if($update){
                 foreach($outcome in $update.Items){
                     $candidate=$eligible|Where-Object FileName -eq $outcome.FileName|Select-Object -First 1
-                    $base=New-HermesResultItem $outcome.FileName $outcome.ExpenseId $outcome.Outcome $outcome.ReasonCode $outcome.Message $outcome.Sheet $outcome.Row
+                    $base=New-HermesResultItem $outcome.FileName $outcome.ExpenseId $outcome.Outcome $outcome.ReasonCode $outcome.Message $outcome.Sheet $outcome.Row -SourceDeviceName ([string]$candidate.Payload.sourceDeviceName)
                     if($outcome.Outcome -eq 'inserted' -or $outcome.Outcome -eq 'exact_duplicate'){
                         if($DryRun){$items.Add($base);if($outcome.Outcome -eq 'inserted'){$counts.inserted++}else{$counts.exactDuplicate++};continue}
-                        try{$state.records[$outcome.ExpenseId]=[ordered]@{outcome=$outcome.Outcome;processedAt=[datetimeoffset]::UtcNow.ToString('o');sourceFileName=$outcome.FileName;sheet=$outcome.Sheet;row=$outcome.Row};if($StateWriter){&$StateWriter $state $StatePath}else{Write-HermesState $state $StatePath};$done=Join-Path $inbox 'receipt_jsons_done';if($ArchiveMover){&$ArchiveMover $candidate.Path $done $true}else{Move-HermesHandoff $candidate.Path $done -StateProvesCompletion|Out-Null};$items.Add($base);if($outcome.Outcome -eq 'inserted'){$counts.inserted++}else{$counts.exactDuplicate++}}catch{$archiveReason=if($_.Exception.Message -match 'archive_conflict'){'archive_conflict'}else{'state_or_archive_failed'};$failed=New-HermesResultItem $outcome.FileName $outcome.ExpenseId 'failed' $archiveReason $_.Exception.Message $outcome.Sheet $outcome.Row;$items.Add($failed);$counts.failed++}
+                        try{$state.records[$outcome.ExpenseId]=[ordered]@{outcome=$outcome.Outcome;processedAt=[datetimeoffset]::UtcNow.ToString('o');sourceFileName=$outcome.FileName;sheet=$outcome.Sheet;row=$outcome.Row};if($StateWriter){&$StateWriter $state $StatePath}else{Write-HermesState $state $StatePath};$done=Join-Path $inbox 'receipt_jsons_done';if($ArchiveMover){&$ArchiveMover $candidate.Path $done $true}else{Move-HermesHandoff $candidate.Path $done -StateProvesCompletion|Out-Null};$items.Add($base);if($outcome.Outcome -eq 'inserted'){$counts.inserted++}else{$counts.exactDuplicate++}}catch{$archiveReason=if($_.Exception.Message -match 'archive_conflict'){'archive_conflict'}else{'state_or_archive_failed'};$failed=New-HermesResultItem $outcome.FileName $outcome.ExpenseId 'failed' $archiveReason $_.Exception.Message $outcome.Sheet $outcome.Row -SourceDeviceName ([string]$candidate.Payload.sourceDeviceName);$items.Add($failed);$counts.failed++}
                     }elseif($outcome.Outcome -eq 'review'){
                         if(-not $DryRun){
                             try{
@@ -528,7 +535,7 @@ function Invoke-HermesProcessor {
                                 $items.Add($base)
                                 $counts.review++
                             }catch{
-                                $items.Add((New-HermesResultItem $candidate.FileName $candidate.Validation.ExpenseId 'failed' 'archive_failed' $_.Exception.Message $outcome.Sheet $outcome.Row))
+                                $items.Add((New-HermesResultItem $candidate.FileName $candidate.Validation.ExpenseId 'failed' 'archive_failed' $_.Exception.Message $outcome.Sheet $outcome.Row -SourceDeviceName ([string]$candidate.Payload.sourceDeviceName)))
                                 $counts.failed++
                             }
                         }else{$items.Add($base);$counts.review++}
@@ -539,6 +546,15 @@ function Invoke-HermesProcessor {
                         if($outcome.Outcome -eq 'deferred'){$counts.deferred++}else{$counts.failed++}
                     }
                 }
+            }
+        }
+        foreach($resultItem in $items){
+            if($resultItem.fileName -and $orderDetails.ContainsKey($resultItem.fileName)){
+                $detail=$orderDetails[$resultItem.fileName]
+                $resultItem | Add-Member -NotePropertyName merchant -NotePropertyValue $detail.merchant -Force
+                $resultItem | Add-Member -NotePropertyName amount -NotePropertyValue $detail.amount -Force
+                $resultItem | Add-Member -NotePropertyName receiptDate -NotePropertyValue $detail.receiptDate.ToString('yyyy-MM-dd',$script:Invariant) -Force
+                $resultItem | Add-Member -NotePropertyName currency -NotePropertyValue $detail.currency -Force
             }
         }
         $outcomeName=if($counts.failed -gt 0){'completed_with_failures'}elseif($counts.deferred -gt 0){'deferred'}elseif($counts.discovered -eq 0){'no_work'}else{'handled'}
