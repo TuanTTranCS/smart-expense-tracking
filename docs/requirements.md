@@ -10,6 +10,8 @@ Build a private-first expense capture workflow where an Android phone extracts o
 
 Overall feasibility: feasible for an MVP, with a few integration details to resolve before implementation.
 
+Pre-implementation validation: LM Studio served through Tailscale Serve was reachable from a physical Pixel 7 using `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` as the profile base URL, without the LM Studio `:1234` port, on both local and external networks when LM Studio's **Allow local network access** was enabled. App-driven Tailscale control and status behavior remain unimplemented; see [the Tailscale integration goal](6.tailscale-integration-goal.md).
+
 High-confidence parts:
 - Android can capture a receipt photo or let the user select one from local/cloud-backed media.
 - Android can upload a normalized receipt JPEG followed by a structured handoff file to OneDrive through Microsoft Graph.

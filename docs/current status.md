@@ -4,7 +4,7 @@
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
 - ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
 
-Last updated: 2026-09-21
+Last updated: 2026-09-29
 
 ## Overall Status
 
@@ -20,6 +20,7 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 - ✅ Done: Updated the LM Studio test profile to use `json_schema` structured output after emulator testing showed that the server rejects legacy `json_object`. The connectivity probe now requires exactly `{"status":"ok"}`.
 - ✅ Done: Ran the LM Studio provider-test action on the Pixel 8a emulator. The app connected successfully to `http://10.0.0.207:1234/v1` using `google/gemma-4-e2b` and received the expected JSON-schema response.
+- ✅ Done: Hugo verified from a physical Pixel 7 on 2026-09-29 that LM Studio served through Tailscale Serve is reachable at `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` (no `:1234`) when LM Studio **Allow local network access** is enabled; it worked on local and external networks. This verifies the profile endpoint setup only; in-app Tailscale controls and status orchestration remain unimplemented in [the Tailscale integration goal](6.tailscale-integration-goal.md).
 
 - ✅ Done: Created initial requirements for the Android-to-OneDrive-to-Windows-to-Excel workflow.
 - ✅ Done: Documented feasibility findings and integration risks.

@@ -1,6 +1,6 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-09-20
+Last updated: 2026-09-29
 
 ## Cross-Cutting Android Branding
 
@@ -152,6 +152,14 @@ Status: ✅ Done (automated verification complete; verified on a physical Pixel 
 - ✅ Done: Added unit and Compose UI coverage; shared and Android unit suites pass, Compose tests compile, and the debug app assembles on 2026-09-21. Hugo confirmed the feature on a physical Pixel 7 on 2026-09-21; individual device test scenarios were not recorded.
 
 Zoom extension status: ✅ Done (automated verification complete on 2026-09-21; verified on a physical Pixel 7 on 2026-09-22). `REQ-UI-008` and `AC-033` now have pinch-to-zoom, bounded panning, accessible Zoom in/Zoom out controls, and reset on reopening or replacement in the full-screen viewer. Pure transform and Android unit tests pass, Compose UI tests compile, and the debug APK assembles. Display decoding uses the processed in-memory image with a 4096-pixel longest-edge and 12-million-pixel memory bound.
+
+## Gap 9: Profile-Gated Tailscale Access to LM Studio
+
+Status: Pre-implementation connectivity path verified on a physical Pixel 7 on 2026-09-29; app integration remains pending.
+
+- ✅ Done: Verified LM Studio served through Tailscale Serve using `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` as the saved profile `baseUrl`, without `:1234`, while LM Studio **Allow local network access** was enabled.
+- ✅ Done: Confirmed the endpoint was reachable from the Pixel 7 on both local and external networks.
+- Pending: Implement and test profile-gated Tailscale controls, bounded readiness polling, persistence/import compatibility, and error/status handling as specified in `docs/6.tailscale-integration-goal.md`.
 
 ## Gap 5: Receipt Image and Optional Photo Link
 
