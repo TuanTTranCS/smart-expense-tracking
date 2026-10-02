@@ -181,6 +181,8 @@ REQ-UI-010: While the app is resumed and an eligible profile is selected, it sha
 
 REQ-UI-011: Main shall provide an accessible Retry extraction action once the selected image is loaded, including after extraction failure. Retry shall reuse the exact retained processed image without reopening the picker or loading/preprocessing it again, snapshot the currently effective provider while respecting remote opt-in/local fallback, retain the image preview, and replace the current reviews and transient debug/export previews. Retry shall be disabled during extraction, export, or provider configuration work. It shall not upload anything or alter persisted export records; an image-load failure shall require choosing an image again.
 
+REQ-UI-012: Main and Settings shall reserve Android's safe drawing insets outside their scrollable viewports so controls remain fully visible and tappable above gesture and three-button navigation bars. Layout shall respond to status bars, display cutouts, side navigation bars and keyboard inset changes, consuming shared insets once while preserving existing content margins.
+
 ### Handoff File
 
 REQ-H-001: The handoff format and final file extension shall be JSON (`.json`). Temporary or incomplete uploads shall use a non-JSON extension such as `.uploading`.
@@ -480,6 +482,12 @@ AC-034: Enabling the remote-profile checkbox persists through editing, restart a
 AC-035: Main displays VPN detected, no VPN detected for this app, or VPN detection unavailable separately from models endpoint checking/reachable/unavailable. External VPN changes update detection and trigger a fresh endpoint check without commands; periodic checks detect endpoint outages/recovery. A reachable LAN endpoint with no detected VPN does not turn the command switch on. Backgrounding stops checks and network callbacks; returning refreshes current observations. The reusable checker supports custom URL/path/key/timeouts, empty model lists, HTTP/invalid-response errors and prompt cancellation, with no credential leakage or receipt transmission.
 
 AC-036: After selecting and loading an image, Retry extraction sends that same processed image again with the provider selected at retry activation. Repeated taps while extracting or exporting start no extra request; changing provider while retry runs does not change its snapshot. A provider failure retains the image, manual-entry fallback, and retry action. Successful retry replaces prior edits/results/debug previews with the new receipt reviews, preserves the selected image and source URI, and makes no export request. Choosing another image makes subsequent retries use that image.
+
+AC-037: On Main, the receipt selection, extraction retry and export controls can be scrolled completely above Android navigation UI, including with Debug output enabled. Settings content uses the same safe viewport. Insets update when the keyboard or navigation configuration changes, and a nested inset-aware child does not apply the same system spacing twice.
+
+## System-bar layout implementation verification
+
+✅ Done on 2026-10-01: `gradlew.bat test :android-app:testDebugUnitTest :android-app:assembleDebug :android-app:compileDebugAndroidTestKotlin --max-workers=2 --console=plain` succeeds. All 121 Android unit tests pass, including four Robolectric Compose layout regressions; shared JVM tests remain passing/up to date. The regressions use the actual Main workflow with long Debug output to verify full export-button bounds and activation above synthetic gesture/three-button insets, respond to keyboard-sized inset changes, and verify side insets are consumed once. Main and Settings share the same safe container, with explicit edge-to-edge setup and keyboard resize handling. This verifies `REQ-UI-012` and `AC-037`, with existing navigation, review, Debug, and export unit coverage retained. Device UI tests compile; this task did not execute instrumentation tests. Physical-device validation: ✅ Done, confirmed by Hugo on 2026-10-01.
 
 ## Extraction retry implementation verification
 

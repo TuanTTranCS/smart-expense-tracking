@@ -6,7 +6,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -72,7 +71,7 @@ fun SmartExpenseApp(
         }
     }
 
-    MaterialTheme {
+    SmartExpenseAppContent {
         NavHost(navController, startDestination = MAIN_ROUTE) {
             composable(MAIN_ROUTE) {
                 val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->

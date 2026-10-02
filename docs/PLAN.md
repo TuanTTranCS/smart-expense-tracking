@@ -102,6 +102,7 @@ Status: In Progress
 Goals:
 
 - Capture/import receipt image.
+- ✅ Done: Prevent Main/Settings controls from overlapping Android system UI with shared safe drawing inset handling. All 121 Android unit tests pass (including four inset layout regressions), device UI tests compile, and debug assembly succeeds on 2026-10-01. Physical-device validation: ✅ Done, confirmed by Hugo on 2026-10-01 (`REQ-UI-012`, `AC-037`).
 - ✅ Done: Add Main's selected-image Retry extraction using the retained processed image and current effective provider. All 117 Android unit tests pass, Compose tests compile, and the debug APK assembles on 2026-10-01. Hugo confirmed physical-device validation on Pixel 7 on 2026-10-01; see `docs/7.retry-extraction-plan.md`.
 - ✅ Done: Provide a default-enabled option that reduces selected images larger than 200 KB to strictly below 200 KB before extraction.
 - ✅ Done: Add a selected-image review thumbnail that opens the complete post-preprocessing image used for extraction, as detailed in `docs/5.image-review-plan.md`. Hugo verified the feature on a physical Pixel 7 on 2026-09-21.

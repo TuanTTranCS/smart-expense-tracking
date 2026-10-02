@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-01
 
+## Gap 11: Android System-Bar Layout
+
+Status: ✅ Done — implementation, unit verification, device UI test compilation, and debug assembly completed on 2026-10-01. Physical-device validation: ✅ Done, confirmed by Hugo on 2026-10-01.
+
+- Reserve `WindowInsets.safeDrawing` outside the shared Main/Settings scroll viewport and consume system spacing once, retaining the existing 24 dp content margins.
+- Enable consistent edge-to-edge window behavior and `adjustResize` for keyboard inset delivery.
+- Four Robolectric Compose unit tests verify a fully visible, clickable export button above gesture/three-button bars with long Debug output, changes to keyboard space, and nested side-inset consumption.
+- All 121 Android unit tests pass, shared JVM tests remain passing/up to date, device UI tests compile, and the debug APK assembles. Checked `REQ-UI-012`, `AC-037`, and existing navigation, Debug, and export behavior.
+
 ## Gap 10: Retry Extraction for the Selected Image
 
 Status: ✅ Done — implementation, unit verification, Compose test compilation, and debug assembly completed on 2026-10-01. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-01; individual test scenarios were not recorded. Compose execution remains pending.

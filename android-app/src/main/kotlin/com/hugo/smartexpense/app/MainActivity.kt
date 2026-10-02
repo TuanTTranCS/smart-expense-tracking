@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hugo.smartexpense.androidextraction.AndroidLiteRtLmReceiptModelClientFactory
 import com.hugo.smartexpense.app.graphauth.GraphAuthenticationViewModel
@@ -35,6 +36,7 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val preferences = getSharedPreferences("model_selector", MODE_PRIVATE)
         val detectedName = listOf(Build.MANUFACTURER, Build.MODEL).filterNot(String::isNullOrBlank)
             .joinToString(" ").ifBlank { "Android device" }
