@@ -25,6 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.hugo.smartexpense.extraction.ModelProfile
@@ -229,6 +231,16 @@ private fun ProfileEditor(
         label = "JSON object",
         onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)) },
     )
+    Row {
+        Checkbox(
+            checked = draft.showTailscaleToggle,
+            onCheckedChange = { update(draft.copy(showTailscaleToggle = it)) },
+            enabled = !busy,
+            modifier = Modifier.semantics { contentDescription = "Show Tailscale control on Main" },
+        )
+        Text("Show Tailscale control on Main", Modifier.padding(top = 12.dp))
+    }
+    Text("When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.")
     Text("Testing sends a connectivity prompt to this remote endpoint. It does not save or select the profile.")
     editor.testStatus?.let { Text(it) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

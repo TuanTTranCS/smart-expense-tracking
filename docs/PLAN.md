@@ -1,6 +1,6 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-09-20
+Last updated: 2026-10-01
 
 ## Stack Direction
 
@@ -102,6 +102,7 @@ Status: In Progress
 Goals:
 
 - Capture/import receipt image.
+- ✅ Done: Add Main's selected-image Retry extraction using the retained processed image and current effective provider. All 117 Android unit tests pass, Compose tests compile, and the debug APK assembles on 2026-10-01. Hugo confirmed physical-device validation on Pixel 7 on 2026-10-01; see `docs/7.retry-extraction-plan.md`.
 - ✅ Done: Provide a default-enabled option that reduces selected images larger than 200 KB to strictly below 200 KB before extraction.
 - ✅ Done: Add a selected-image review thumbnail that opens the complete post-preprocessing image used for extraction, as detailed in `docs/5.image-review-plan.md`. Hugo verified the feature on a physical Pixel 7 on 2026-09-21.
 - ✅ Done: Added pinch-to-zoom, bounded pan, and accessible Zoom in/Zoom out controls to the selected-image viewer under `REQ-UI-008` and `AC-033`, following `docs/5.image-review-plan.md`. Automated verification passed, and Hugo verified zoom and text legibility on a Pixel 7 on 2026-09-22.
@@ -113,6 +114,7 @@ Goals:
 - ✅ Done: Validate strict remote extraction request JSON and the nested receipts schema, reject trailing-comma regressions, and retry `invalid_json` JSON-schema extraction once without `response_format`; provide a default-off Settings Debug control for raw extraction responses and per-receipt generated handoff JSON.
 - ✅ Done: Configure, test, save, select, edit, and delete persistent OpenAI-compatible provider profiles through Settings, with secure per-profile credentials and local fallback.
 - ✅ Done: Export all saved remote-provider metadata and selector state to a versioned JSON document, and preview/import validated profile files atomically without exporting credentials or changing the current selection.
+- ✅ Done: Implement profile-gated on-demand Tailscale requests near the Main provider selector, with a Settings-only per-profile flag, Room v1-to-v2 migration/schema, provider-configuration v2/v1 import compatibility, cancellable reachability retries, and separate request/VPN/models endpoint status. The 2026-09-30 extension adds foreground VPN observation and periodic GET models checks, with a reusable checker accepting custom URL/key/path/timeouts. Shared tests, all 113 Android unit tests, Compose test compilation, and debug assembly pass. See `docs/6.tailscale-integration-goal.md`. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30.
 - Review and correct extracted data.
 - ✅ Done: Export unchanged, user-confirmed low-confidence receipts with `confirmed` status and user-edited receipts with `manual` status.
 - ✅ Done: After the receipt image succeeds, publish the final Version 2 JSON handoff using Microsoft Graph.
@@ -123,6 +125,7 @@ Goals:
 
 Testing:
 
+- ✅ Done: Verified the live VPN/models status extension with all 113 Android unit tests, shared tests, ten affected Compose tests on the Pixel 8a API 35 emulator, and debug APK assembly on 2026-09-30 (`REQ-M-027..028`, `REQ-UI-009..010`, `AC-034..035`).
 - Unit tests for extraction response parsing.
 - ✅ Done: Unit tests for the multiple-receipt prompt contract in both direct-image and OCR-text modes.
 - ✅ Done: Unit tests parse complete image and OCR request JSON and verify the receipt schema, provider errors, Debug persistence, and independent export previews.

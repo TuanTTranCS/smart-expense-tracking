@@ -1,7 +1,8 @@
 package com.hugo.smartexpense.app.receipt.ui
 
-import android.util.Base64
-import android.view.KeyEvent
+import android.graphics.Bitmap
+import java.io.ByteArrayOutputStream
+import androidx.test.espresso.Espresso
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +19,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hugo.smartexpense.app.ReceiptReviewState
 import com.hugo.smartexpense.app.graphauth.GraphAuthenticationUiState
@@ -34,6 +34,62 @@ import org.junit.runner.RunWith
 class ReceiptWorkflowScreenTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun mainShowsEligibleTailscaleControlAndHidesItAfterSelectingLocal() {
+        val profile = com.hugo.smartexpense.extraction.ModelProfile(
+            "tailnet", "Tailnet", "https://example.test/v1", "model",
+            com.hugo.smartexpense.extraction.RemoteInputMode.DIRECT_IMAGE,
+            com.hugo.smartexpense.extraction.RemoteStructuredOutputFormat.JSON_SCHEMA,
+            "alias", 1, 1, true,
+        )
+        var state by mutableStateOf(ModelProfilesUiState(profiles = listOf(profile),
+            selectorState = com.hugo.smartexpense.extraction.ModelProfileSelectorState(profile.id, true)))
+        val graph = GraphAuthenticationUiState(busy = false)
+        compose.setContent {
+            MaterialTheme {
+                ReceiptWorkflowScreen(
+                    profileState = state, workflowState = ReceiptWorkflowUiState(), graphState = graph,
+                    oneDrive = graph.toOneDrivePresentation(), onOpenSettings = {}, onSelectLocal = {},
+                    onSelectRemote = {}, onVerifyProvider = {}, onOneDriveRecovery = {}, onChooseReceipt = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Request Tailscale for Tailnet").assertExists()
+        compose.runOnUiThread { state = state.copy(selectorState = state.selectorState.copy(selectedRemoteProfileId = null)) }
+        compose.onNodeWithContentDescription("Request Tailscale for Tailnet").assertDoesNotExist()
+    }
+
+    @Test fun retryActionRequiresImageAndDisablesDuringExtractionExportAndProfileWork() {
+        val graph = GraphAuthenticationUiState(busy = false)
+        var workflow by mutableStateOf(ReceiptWorkflowUiState())
+        var profiles by mutableStateOf(ModelProfilesUiState())
+        var retries = 0
+        compose.setContent {
+            MaterialTheme {
+                ReceiptWorkflowScreen(
+                    profileState = profiles, workflowState = workflow, graphState = graph,
+                    oneDrive = graph.toOneDrivePresentation(), onOpenSettings = {}, onSelectLocal = {},
+                    onSelectRemote = {}, onVerifyProvider = {}, onOneDriveRecovery = {}, onChooseReceipt = {},
+                    onRetryExtraction = { retries++ }, onReviewChange = { _, _ -> }, onExport = {},
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertDoesNotExist()
+        compose.runOnUiThread {
+            workflow = workflow.copy(selectedImage = receiptImage("retry"), selectedImageUri = "content://receipt")
+        }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertIsEnabled().performClick()
+        compose.runOnIdle { org.junit.Assert.assertEquals(1, retries) }
+        compose.runOnUiThread { workflow = workflow.copy(extracting = true) }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertIsNotEnabled()
+        compose.runOnUiThread { workflow = workflow.copy(extracting = false, exporting = true) }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertIsNotEnabled()
+        compose.runOnUiThread { workflow = workflow.copy(exporting = false); profiles = profiles.copy(busy = true) }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertIsNotEnabled()
+        compose.runOnUiThread { profiles = profiles.copy(busy = false) }
+        compose.onNodeWithContentDescription("Retry extraction for selected image").assertIsEnabled()
+    }
+
     @Test fun mainContainsWorkflowButNotSettingsControls() {
         val graph = GraphAuthenticationUiState(busy = false)
         compose.setContent {
@@ -45,7 +101,7 @@ class ReceiptWorkflowScreenTest {
                     oneDrive = graph.toOneDrivePresentation(),
                     onOpenSettings = {}, onSelectLocal = {}, onSelectRemote = {}, onVerifyProvider = {},
                     onOneDriveRecovery = { _: OneDriveRecoveryAction -> }, onChooseReceipt = {},
-                    onReviewChange = { _, _ -> }, onExport = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
                 )
             }
         }
@@ -77,7 +133,7 @@ class ReceiptWorkflowScreenTest {
                     oneDrive = graph.toOneDrivePresentation(),
                     onOpenSettings = {}, onSelectLocal = {}, onSelectRemote = {}, onVerifyProvider = {},
                     onOneDriveRecovery = { _: OneDriveRecoveryAction -> }, onChooseReceipt = {},
-                    onReviewChange = { _, _ -> }, onExport = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
                     debugOutputEnabled = debugEnabled,
                 )
             }
@@ -104,12 +160,12 @@ class ReceiptWorkflowScreenTest {
                     oneDrive = graph.toOneDrivePresentation(),
                     onOpenSettings = {}, onSelectLocal = {}, onSelectRemote = {}, onVerifyProvider = {},
                     onOneDriveRecovery = { _: OneDriveRecoveryAction -> }, onChooseReceipt = {},
-                    onReviewChange = { _, _ -> }, onExport = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
                 )
             }
         }
 
-        compose.waitUntil { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Review selected receipt image").performClick()
         compose.onNodeWithContentDescription("Selected receipt image").assertIsDisplayed()
         compose.onNodeWithContentDescription("Zoom in").assertIsEnabled()
@@ -128,7 +184,10 @@ class ReceiptWorkflowScreenTest {
         compose.onNodeWithContentDescription("Review selected receipt image").performClick()
         compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Zoom in").performClick()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        Espresso.pressBack()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithContentDescription("Selected receipt image").fetchSemanticsNodes().isEmpty()
+        }
         compose.onNodeWithContentDescription("Selected receipt image").assertDoesNotExist()
         compose.onNodeWithContentDescription("Review selected receipt image").assertIsDisplayed()
         compose.onNodeWithText("Corner Store").assertIsDisplayed()
@@ -144,18 +203,18 @@ class ReceiptWorkflowScreenTest {
                     graphState = graph, oneDrive = graph.toOneDrivePresentation(),
                     onOpenSettings = {}, onSelectLocal = {}, onSelectRemote = {}, onVerifyProvider = {},
                     onOneDriveRecovery = { _: OneDriveRecoveryAction -> }, onChooseReceipt = {},
-                    onReviewChange = { _, _ -> }, onExport = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
                 )
             }
         }
 
-        compose.waitUntil { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Review selected receipt image").performClick()
         compose.onNodeWithContentDescription("Selected receipt image").assertIsDisplayed()
         compose.onNodeWithContentDescription("Zoom in").performClick()
         compose.runOnUiThread { workflowState = workflowState.copy(selectedImage = receiptImage("replacement")) }
         compose.onNodeWithContentDescription("Selected receipt image").assertDoesNotExist()
-        compose.waitUntil { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Review selected receipt image").performClick()
         compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
     }
@@ -172,7 +231,7 @@ class ReceiptWorkflowScreenTest {
                     graphState = graph, oneDrive = graph.toOneDrivePresentation(),
                     onOpenSettings = {}, onSelectLocal = {}, onSelectRemote = {}, onVerifyProvider = {},
                     onOneDriveRecovery = { _: OneDriveRecoveryAction -> }, onChooseReceipt = {},
-                    onReviewChange = { _, _ -> }, onExport = {},
+                    onRetryExtraction = {}, onReviewChange = { _, _ -> }, onExport = {},
                 )
             }
         }
@@ -184,12 +243,17 @@ class ReceiptWorkflowScreenTest {
         compose.onNodeWithContentDescription("Review selected receipt image").assertDoesNotExist()
     }
 
-    private fun receiptImage(name: String): ReceiptImage = ReceiptImage(
-        sourceName = name,
-        bytes = Base64.decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLx0QAAAABJRU5ErkJggg==",
-            Base64.DEFAULT,
-        ),
-        mimeType = "image/png",
-    )
+    private fun receiptImage(name: String): ReceiptImage {
+        val bitmap = Bitmap.createBitmap(32, 48, Bitmap.Config.ARGB_8888)
+        return try {
+            bitmap.eraseColor(android.graphics.Color.WHITE)
+            val bytes = ByteArrayOutputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                output.toByteArray()
+            }
+            ReceiptImage(name, bytes, "image/png")
+        } finally {
+            bitmap.recycle()
+        }
+    }
 }

@@ -12,6 +12,7 @@ data class ModelProfile(
     val credentialAlias: String,
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
+    val showTailscaleToggle: Boolean = false,
 ) {
     fun asProviderOption(): OpenAiCompatibleProviderOption = OpenAiCompatibleProviderOption(
         id = id,
@@ -21,6 +22,7 @@ data class ModelProfile(
         inputMode = inputMode,
         apiKeyAlias = credentialAlias,
         structuredOutputFormat = structuredOutputFormat,
+        showTailscaleToggle = showTailscaleToggle,
     )
 
     companion object {
@@ -36,6 +38,7 @@ data class ModelProfileDraft(
     val inputMode: RemoteInputMode = RemoteInputMode.DIRECT_IMAGE,
     val structuredOutputFormat: RemoteStructuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA,
     val apiKey: String = "",
+    val showTailscaleToggle: Boolean = false,
 )
 
 data class ModelProfileValidationResult(

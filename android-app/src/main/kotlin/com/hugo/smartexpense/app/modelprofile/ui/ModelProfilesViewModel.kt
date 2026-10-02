@@ -9,6 +9,9 @@ import com.hugo.smartexpense.app.modelprofile.migration.LegacyMigrationResult
 import com.hugo.smartexpense.app.modelprofile.migration.LegacyModelProfileMigrator
 import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigImportPreview
 import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigTransferService
+import com.hugo.smartexpense.app.tailscale.TailscaleAccess
+import com.hugo.smartexpense.app.tailscale.TailscaleAccessState
+import com.hugo.smartexpense.app.tailscale.TailscaleController
 import com.hugo.smartexpense.extraction.ApiKeyStore
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ModelProfileDraft
@@ -46,6 +49,7 @@ data class ModelProfilesUiState(
     val verification: ProviderVerificationState? = null,
     val busy: Boolean = false,
     val message: String? = null,
+    val tailscale: TailscaleAccessState? = null,
 )
 
 data class ProviderVerificationState(
@@ -80,7 +84,17 @@ class ModelProfilesViewModel(
     private val validator: ModelProfileValidator = ModelProfileValidator(),
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = System::currentTimeMillis,
+    tailscaleController: TailscaleController = TailscaleController { _, _ ->
+        throw com.hugo.smartexpense.app.tailscale.TailscaleUnavailableException("Tailscale unavailable. Open Tailscale to check setup.")
+    },
+    tailscaleProbe: ModelProfileTestService = testService,
+    vpnStatusSource: com.hugo.smartexpense.app.connectivity.VpnStatusSource = com.hugo.smartexpense.app.connectivity.UnknownVpnStatusSource,
 ) : ViewModel() {
+    private val tailscaleAccess = TailscaleAccess(repository, resolver, tailscaleController, tailscaleProbe, viewModelScope,
+        vpnStatusSource = vpnStatusSource)
+    fun requestTailscale(connect: Boolean) = tailscaleAccess.request(connect)
+    fun resetTailscaleStatus() = tailscaleAccess.resetStatus()
+    fun setConnectivityMonitoring(active: Boolean) = tailscaleAccess.setMonitoring(active)
     private val editor = MutableStateFlow<ModelProfileEditorState?>(null)
     private val busy = MutableStateFlow(false)
     private val message = MutableStateFlow<String?>(null)
@@ -117,6 +131,9 @@ class ModelProfilesViewModel(
             busy = transient.busy,
             message = transient.message,
         )
+    }.combine(tailscaleAccess.state) { state, tailscale ->
+        val eligible = resolver.resolve(state.profiles, state.selectorState).tailscaleProfile
+        state.copy(tailscale = tailscale?.takeIf { it.profile == eligible })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelProfilesUiState())
 
     init {
@@ -147,6 +164,7 @@ class ModelProfilesViewModel(
             modelId = profile.modelId,
             inputMode = profile.inputMode,
             structuredOutputFormat = profile.structuredOutputFormat,
+            showTailscaleToggle = profile.showTailscaleToggle,
         )
         editor.value = ModelProfileEditorState(
             draft = draft,
@@ -225,6 +243,7 @@ class ModelProfilesViewModel(
             credentialAlias = existing?.credentialAlias ?: ModelProfile.credentialAlias(id),
             createdAtEpochMillis = existing?.createdAtEpochMillis ?: now,
             updatedAtEpochMillis = now,
+            showTailscaleToggle = currentEditor.draft.showTailscaleToggle,
         )
         if (currentEditor.draft.apiKey.isNotBlank()) {
             credentialStore.put(profile.credentialAlias, currentEditor.draft.apiKey)

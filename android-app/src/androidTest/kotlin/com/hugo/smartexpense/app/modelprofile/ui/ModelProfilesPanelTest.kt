@@ -8,11 +8,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hugo.smartexpense.app.modelprofile.domain.SelectedReceiptModelProviderResolver
 import com.hugo.smartexpense.extraction.ModelProfile
@@ -61,14 +62,16 @@ class ModelProfilesPanelTest {
         compose.onNodeWithText("Base URL").performTextInput("https://example.test/v1")
         compose.onNodeWithText("Model ID").performTextInput("model-a")
         compose.onNodeWithText("API key").performTextInput("secret-value")
-        compose.onNodeWithText("Save and select").performClick()
+        compose.onNodeWithContentDescription("Show Tailscale control on Main").performScrollTo().performClick()
+        compose.onNodeWithText("Save and select").performScrollTo().performClick()
 
         compose.onNodeWithText("Home server").assertIsDisplayed()
         compose.onNodeWithText("Selected for next extraction").assertIsDisplayed()
-        compose.onNodeWithText("Home server (model-a) will be used for the next extraction.").assertTextContains("Home server")
+        compose.onNodeWithText("Home server (model-a) will be used for the next extraction.").assertIsDisplayed()
         compose.onNodeWithText("Export all profiles").performClick()
         check(exportRequests == 1)
         check(credentials.values["remote-provider:ui-profile"] == "secret-value")
+        check(repository.profiles.value.single().showTailscaleToggle)
     }
 }
 

@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.first
 data class ResolvedReceiptModelProvider(
     val selectedProvider: SelectedModelProvider,
     val remoteProfile: ModelProfile?,
-)
+) {
+    val tailscaleProfile: ModelProfile? get() = remoteProfile?.takeIf { it.showTailscaleToggle }
+}
 
 class SelectedReceiptModelProviderResolver(
     private val repository: ModelProfileRepository,

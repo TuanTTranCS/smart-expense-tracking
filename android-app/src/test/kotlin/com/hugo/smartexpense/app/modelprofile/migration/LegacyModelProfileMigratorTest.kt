@@ -27,6 +27,7 @@ class LegacyModelProfileMigratorTest {
         assertEquals(LmStudioTestProfile.displayName, profile.displayName)
         assertEquals(LmStudioTestProfile.baseUrl, profile.baseUrl)
         assertEquals(LmStudioTestProfile.modelId, profile.modelId)
+        assertFalse(profile.showTailscaleToggle)
         assertEquals(
             LmStudioTestProfile.placeholderApiKey,
             credentials.values[ModelProfile.credentialAlias(LmStudioTestProfile.providerId)],
@@ -116,6 +117,7 @@ class LegacyModelProfileMigratorTest {
         val repository = FakeRepository()
         assertIs<LegacyMigrationResult.Migrated>(migrator(preferences, repository, FakeCredentials()).migrate())
         assertEquals(1, repository.profiles.value.size)
+        assertFalse(repository.profiles.value.single().showTailscaleToggle)
         assertFalse(repository.selector.value.remoteProvidersEnabled)
         assertNull(repository.selector.value.selectedRemoteProfileId)
     }

@@ -19,18 +19,19 @@ data class ModelProfileEntity(
     @ColumnInfo(name = "credential_alias") val credentialAlias: String,
     @ColumnInfo(name = "created_at_epoch_millis") val createdAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at_epoch_millis") val updatedAtEpochMillis: Long,
+    @ColumnInfo(name = "show_tailscale_toggle", defaultValue = "0") val showTailscaleToggle: Boolean = false,
 ) {
     fun toDomain(): ModelProfile = ModelProfile(
         id, displayName, baseUrl, modelId, inputMode,
         structuredOutputFormat, credentialAlias,
-        createdAtEpochMillis, updatedAtEpochMillis,
+        createdAtEpochMillis, updatedAtEpochMillis, showTailscaleToggle,
     )
 
     companion object {
         fun fromDomain(value: ModelProfile) = ModelProfileEntity(
             value.id, value.displayName, value.baseUrl, value.modelId, value.inputMode,
             value.structuredOutputFormat, value.credentialAlias,
-            value.createdAtEpochMillis, value.updatedAtEpochMillis,
+            value.createdAtEpochMillis, value.updatedAtEpochMillis, value.showTailscaleToggle,
         )
     }
 }

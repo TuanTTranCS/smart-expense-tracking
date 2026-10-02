@@ -24,8 +24,11 @@ data class ReceiptWorkflowUiState(
     val exporting: Boolean = false,
     val reviews: List<ReceiptReviewState> = emptyList(),
     val selectedImage: ReceiptImage? = null,
+    val selectedImageUri: String? = null,
 ) {
     val review: ReceiptReviewState? get() = reviews.firstOrNull()
+    val canRetryExtraction: Boolean get() =
+        selectedImage != null && !selectedImageUri.isNullOrBlank() && !extracting && !exporting
 }
 
 class ReceiptWorkflowViewModel(
@@ -34,6 +37,7 @@ class ReceiptWorkflowViewModel(
         uri: String,
         reduceOversizedImages: Boolean,
         remoteProfileSnapshot: ModelProfile?,
+        imageSnapshot: ReceiptImage?,
         onImageLoaded: (ReceiptImage) -> Unit,
     ) -> List<ReceiptReviewState>,
     private val startExport: suspend (ReceiptReviewState) -> ReceiptExportRecord,
@@ -45,16 +49,27 @@ class ReceiptWorkflowViewModel(
 
     fun importReceipt(uri: String, remoteProfileSnapshot: ModelProfile?) {
         if (uri.isBlank() || mutableUiState.value.extracting || mutableUiState.value.exporting) return
+        runExtraction(uri, remoteProfileSnapshot, imageSnapshot = null)
+    }
+
+    fun retryExtraction(remoteProfileSnapshot: ModelProfile?) {
+        val state = mutableUiState.value
+        if (!state.canRetryExtraction) return
+        runExtraction(requireNotNull(state.selectedImageUri), remoteProfileSnapshot, state.selectedImage)
+    }
+
+    private fun runExtraction(uri: String, remoteProfileSnapshot: ModelProfile?, imageSnapshot: ReceiptImage?) {
         val reduceSnapshot = settingsRepository.settings.value.reduceOversizedImages
         mutableUiState.value = mutableUiState.value.copy(
             extracting = true,
             reviews = emptyList(),
-            selectedImage = null,
+            selectedImage = imageSnapshot,
+            selectedImageUri = uri,
         )
         viewModelScope.launch {
             val result = runCatching {
                 withContext(operationDispatcher) {
-                    extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot) { image ->
+                    extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot, imageSnapshot) { image ->
                         mutableUiState.value = mutableUiState.value.copy(selectedImage = image)
                     }
                 }

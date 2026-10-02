@@ -8,6 +8,10 @@ import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +55,22 @@ fun SmartExpenseApp(
     val workflowState by workflowViewModel.uiState.collectAsStateWithLifecycle()
     val settings by settingsRepository.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, profilesViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> profilesViewModel.setConnectivityMonitoring(true)
+                Lifecycle.Event.ON_PAUSE -> profilesViewModel.setConnectivityMonitoring(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        profilesViewModel.setConnectivityMonitoring(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            profilesViewModel.setConnectivityMonitoring(false)
+        }
+    }
 
     MaterialTheme {
         NavHost(navController, startDestination = MAIN_ROUTE) {
@@ -82,9 +102,13 @@ fun SmartExpenseApp(
                         }
                     },
                     onChooseReceipt = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                    onRetryExtraction = {
+                        workflowViewModel.retryExtraction(profilesViewModel.uiState.value.effectiveRemoteProfile())
+                    },
                     onReviewChange = workflowViewModel::updateReview,
                     onExport = workflowViewModel::export,
                     debugOutputEnabled = settings.debugOutputEnabled,
+                    onTailscaleRequest = profilesViewModel::requestTailscale,
                 )
             }
             composable(SETTINGS_ROUTE) {

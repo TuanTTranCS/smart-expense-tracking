@@ -33,6 +33,27 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class ModelProfilesViewModelTest {
+    @Test fun editorPersistsAndRestoresPerProfileTailscalePermissionWithoutSelecting() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val vm = viewModel(repository, TestCredentials())
+        vm.addProfile()
+        vm.updateDraft(ModelProfileDraft(displayName = "Tailnet", baseUrl = "https://example.test/v1", modelId = "model", showTailscaleToggle = true))
+        vm.saveProfile()
+        advanceUntilIdle()
+        val saved = repository.profiles.value.single()
+        assertTrue(saved.showTailscaleToggle)
+        assertEquals(null, repository.selector.value.selectedRemoteProfileId)
+        assertEquals(false, repository.selector.value.remoteProvidersEnabled)
+        val collection = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        vm.editProfile(saved)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.editor!!.draft.showTailscaleToggle)
+        vm.updateDraft(vm.uiState.value.editor!!.draft.copy(showTailscaleToggle = false))
+        vm.saveProfile()
+        advanceUntilIdle()
+        assertEquals(false, repository.profiles.value.single().showTailscaleToggle)
+        collection.cancel()
+    }
     private val dispatcher = StandardTestDispatcher()
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)

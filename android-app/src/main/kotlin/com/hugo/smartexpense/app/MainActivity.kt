@@ -74,6 +74,9 @@ class MainActivity : ComponentActivity() {
                 resolver = resolver,
                 testService = DefaultModelProfileTestService(keyStore) { RemoteModelClientFactory(it) },
                 migrator = migrator,
+                tailscaleController = com.hugo.smartexpense.app.tailscale.AndroidTailscaleController(this),
+                tailscaleProbe = com.hugo.smartexpense.app.tailscale.SavedProfileReadinessProbe(keyStore),
+                vpnStatusSource = com.hugo.smartexpense.app.connectivity.AndroidVpnStatusSource(this),
             )
         }
         val graphFactory = GraphAuthenticationViewModel.Factory {
@@ -85,8 +88,8 @@ class MainActivity : ComponentActivity() {
         val workflowFactory = ReceiptWorkflowViewModel.Factory {
             ReceiptWorkflowViewModel(
                 settingsRepository = settingsRepository,
-                extractReceipt = { uri, reduceOversizedImages, remoteProfileSnapshot, onImageLoaded ->
-                    val image = imageLoader.load(uri, reduceOversizedImages)
+                extractReceipt = { uri, reduceOversizedImages, remoteProfileSnapshot, imageSnapshot, onImageLoaded ->
+                    val image = imageSnapshot ?: imageLoader.load(uri, reduceOversizedImages)
                     onImageLoaded(image)
                     val client = if (remoteProfileSnapshot != null) {
                         remoteClientFactory.create(remoteProfileSnapshot)

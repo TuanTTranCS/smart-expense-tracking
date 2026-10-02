@@ -1,6 +1,16 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-09-29
+Last updated: 2026-10-01
+
+## Gap 10: Retry Extraction for the Selected Image
+
+Status: ✅ Done — implementation, unit verification, Compose test compilation, and debug assembly completed on 2026-10-01. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-01; individual test scenarios were not recorded. Compose execution remains pending.
+
+- Added Main's accessible Retry extraction action, enabled after image loading and disabled during receipt or provider configuration work.
+- Reuse the processed image and source URI with the current effective provider snapshot; retain preview and replace reviews/debug/export previews without changing persisted export records.
+- Cover failures/recovery, repeated taps, provider changes/local fallback, review replacement, new selections, and busy guards with unit and Compose tests.
+- Plan: [Main screen extraction retry](7.retry-extraction-plan.md). Checked against `REQ-UI-011`, `AC-036`, existing privacy/fallback, image review, navigation state, and export retry requirements.
+- ✅ Done: All 117 Android unit tests pass, including four new retry regressions; the 38 shared JVM tests remain passing/up to date. Compose tests compile and the debug APK assembles.
 
 ## Cross-Cutting Android Branding
 
@@ -155,11 +165,18 @@ Zoom extension status: ✅ Done (automated verification complete on 2026-09-21; 
 
 ## Gap 9: Profile-Gated Tailscale Access to LM Studio
 
-Status: Pre-implementation connectivity path verified on a physical Pixel 7 on 2026-09-29; app integration remains pending.
+Live status extension verification: ✅ Done — all 113 Android unit tests, shared tests, ten affected Compose tests on the Pixel 8a API 35 emulator, and debug assembly pass on 2026-09-30. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30.
+
+Status: ✅ Done — app implementation, unit tests, nine affected Compose tests on the Pixel 8a emulator, and debug assembly pass on 2026-09-30. Physical command/consent/reconnect verification remains pending.
 
 - ✅ Done: Verified LM Studio served through Tailscale Serve using `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` as the saved profile `baseUrl`, without `:1234`, while LM Studio **Allow local network access** was enabled.
 - ✅ Done: Confirmed the endpoint was reachable from the Pixel 7 on both local and external networks.
-- Pending: Implement and test profile-gated Tailscale controls, bounded readiness polling, persistence/import compatibility, and error/status handling as specified in `docs/6.tailscale-integration-goal.md`.
+- ✅ Done: Persist the default-off capability per profile with Room v2 migration/schema; expose it only in the remote-profile editor; emit provider-configuration v2 and accept v1 imports with false defaults, preserving atomicity, conflict copies, credentials exclusion and selection.
+- ✅ Done: Gate Main visibility and actions on the current effective eligible saved profile. Dispatch compatible package-targeted broadcasts, show request/endpoint status without asserting VPN state, and provide recovery for unavailable Tailscale or endpoints.
+- ✅ Done: Use the reusable models endpoint GET checker with immutable saved URLs and credentials, 10-second attempt deadlines, 2-second connect retry intervals and a 30-second connect deadline. Keep model-specific provider inference verification separate. Abort stale/cancelled HTTP probes and preserve independent extraction.
+- ✅ Done: Add independent app-visible VPN detection and periodic foreground models endpoint observations (`REQ-M-028`, `REQ-UI-010`, `AC-035`). Support custom checker URL/key/path/timeouts and model-ID results; cover empty lists, invalid responses, HTTP failures, redirection, response limits and cancellation. Refresh on resume/VPN changes and 15 seconds after completed checks; pause/profile changes stop stale work. All 113 Android unit tests, shared tests, UI-test compilation and debug assembly pass on 2026-09-30.
+- ✅ Done: Unit tests cover flag propagation, editor persistence, v1/v2 transfer and conflict copying, real Room migration, action gating, retries/timeouts, cancellation, saved credentials and receipt-free probes. All 38 shared JVM tests, 104 Android unit tests, nine affected Compose tests and debug assembly pass. Corrected existing UI test text matching and invalid PNG fixtures, and use a synchronized Espresso Back action with bounded waits. Checked `REQ-M-026..027`, `REQ-UI-009`, `AC-034` and existing profile/privacy/transfer/navigation requirements.
+- ✅ Done: Hugo confirmed physical-device validation on Pixel 7 on 2026-09-30. Individual scenario results and the installed Tailscale version were not recorded; see the validation checklist in [the Tailscale integration goal](6.tailscale-integration-goal.md).
 
 ## Gap 5: Receipt Image and Optional Photo Link
 

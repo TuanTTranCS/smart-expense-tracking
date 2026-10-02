@@ -18,6 +18,27 @@ import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 class ProviderConfigTransferTest {
+    @Test fun v2PreservesCapabilityAndV1DefaultsOff() = runTest {
+        val optedIn = savedProfile("one", "Tailscale").copy(showTailscaleToggle = true)
+        val repository = FakeRepository()
+        val service = ProviderConfigTransferService(repository)
+        val json = service.createExportJson(listOf(optedIn), ModelProfileSelectorState())
+        assertContains(json, "\"schemaVersion\":2")
+        assertTrue(codec.decode(json).profiles.single().showTailscaleToggle)
+        service.confirmImport(service.previewImport(json))
+        assertTrue(repository.profiles.value.single().showTailscaleToggle)
+        val selectorBefore = repository.selector.value
+        val copied = service.confirmImport(service.previewImport(json))
+        assertEquals(1, copied.copiedConflictCount)
+        assertEquals(2, repository.profiles.value.size)
+        assertTrue(repository.profiles.value.all { it.showTailscaleToggle })
+        assertEquals(selectorBefore, repository.selector.value)
+        val legacy = json.replace("\"schemaVersion\":2", "\"schemaVersion\":1")
+            .replace(",\"showTailscaleToggle\":true", "")
+        assertFalse(codec.decode(legacy).profiles.single().showTailscaleToggle)
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("\"showTailscaleToggle\":true", "\"showTailscaleToggle\":\"true\"")) }
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace(",\"showTailscaleToggle\":true", "")) }
+    }
     private val codec = ProviderConfigJsonCodec()
 
     @Test fun codecRoundTripIsDeterministicAndNeverExportsCredentials() {
@@ -43,7 +64,7 @@ class ProviderConfigTransferTest {
     @Test fun codecRejectsMalformedUnsupportedEmptyDuplicateAndInvalidProfiles() {
         assertFailsWith<ProviderConfigException> { codec.decode("not-json") }
         assertFailsWith<ProviderConfigException> {
-            codec.decode(codec.encode(config()).replace("\"schemaVersion\":1", "\"schemaVersion\":2"))
+            codec.decode(codec.encode(config()).replace("\"schemaVersion\":2", "\"schemaVersion\":99"))
         }
         assertFailsWith<ProviderConfigException> {
             codec.decode(codec.encode(config()).replace(Regex("\\[\\{.*}\\]"), "[]"))

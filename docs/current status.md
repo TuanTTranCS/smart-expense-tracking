@@ -4,13 +4,21 @@
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
 - ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
 
-Last updated: 2026-09-29
+Last updated: 2026-10-01
 
 ## Overall Status
 
 The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11. The Windows Hermes/PowerShell design is now decision-complete in `docs/3.excel-update-hermes-goal.md`, but its scripts, tests, copied-workbook canary, and paused cron job are not yet implemented.
 
 ## Completed
+
+- ✅ Done: Added Main's Retry extraction action using the exact retained processed image and the currently selected effective provider snapshot. Retry retains the preview, replaces reviews/debug/export previews, respects remote opt-in/local fallback, and blocks repeated requests during extraction/export. All 117 Android unit tests pass, the 38 shared JVM tests remain passing/up to date, Compose tests compile, and debug assembly succeeds on 2026-10-01. Checked `REQ-UI-011`, `AC-036`, and existing image/navigation/privacy/export requirements. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-01; individual test scenarios were not recorded. Compose execution remains pending. See [the retry plan](7.retry-extraction-plan.md).
+
+- ✅ Done: Final live VPN/models status verification on 2026-09-30: all 113 Android unit tests, shared tests, ten affected Compose tests on the Pixel 8a API 35 emulator, and debug assembly pass. The UI tests confirm accessible live labels and keep the command switch independent of observations, with Settings and receipt-flow regression coverage.
+
+- ✅ Done: Added live app-visible VPN detection and models endpoint status to the eligible Main Tailscale control. A reusable `ModelsEndpointChecker` supports custom URL/key/relative path/connect and read timeouts, returns model IDs, bounds responses, avoids credential-bearing redirects and aborts I/O on cancellation. Saved profiles use GET models with stored credentials and no inference/receipt input; the existing provider inference test remains separate. Foreground entry/VPN changes trigger checks, periodic checks repeat after 15 seconds, connect retries remain bounded to 30 seconds, and pause/profile changes cancel stale work and unregister callbacks. All 113 Android unit tests, shared tests, Compose test compilation and debug assembly pass on 2026-09-30. Checked `REQ-M-027..028`, `REQ-UI-009..010`, `AC-034..035`. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30.
+
+- ✅ Done: Implemented profile-gated Tailscale connect/disconnect requests, default-off Settings capability, current-selection action guards, Room v2 migration/schema and provider-configuration v2/v1 compatibility. The initial implementation passed 38 shared JVM tests, 104 Android unit tests and nine affected Compose tests on the Pixel 8a emulator on 2026-09-30; the status extension above replaces its inference-based readiness probe and reset-only status with live observations. Hugo reports that the app's toggle successfully connected/disconnected Tailscale when manually checked on his Android phone. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30. Individual scenario results and the installed Tailscale version were not recorded.
 
 - ✅ Done: Implemented `REQ-UI-008` and `AC-033` image-viewer zoom with pinch gestures, bounded pan, fixed accessible Zoom in/Zoom out controls, and reset on reopening or image replacement. Pure transform unit tests and Android unit tests pass, Compose UI tests compile, and the debug APK assembles on 2026-09-21. Hugo verified zoom gesture and text legibility on a physical Pixel 7 on 2026-09-22.
 
@@ -20,7 +28,7 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 
 - ✅ Done: Updated the LM Studio test profile to use `json_schema` structured output after emulator testing showed that the server rejects legacy `json_object`. The connectivity probe now requires exactly `{"status":"ok"}`.
 - ✅ Done: Ran the LM Studio provider-test action on the Pixel 8a emulator. The app connected successfully to `http://10.0.0.207:1234/v1` using `google/gemma-4-e2b` and received the expected JSON-schema response.
-- ✅ Done: Hugo verified from a physical Pixel 7 on 2026-09-29 that LM Studio served through Tailscale Serve is reachable at `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` (no `:1234`) when LM Studio **Allow local network access** is enabled; it worked on local and external networks. This verifies the profile endpoint setup only; in-app Tailscale controls and status orchestration remain unimplemented in [the Tailscale integration goal](6.tailscale-integration-goal.md).
+- ✅ Done: Hugo verified from a physical Pixel 7 on 2026-09-29 that LM Studio served through Tailscale Serve is reachable at `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` (no `:1234`) when LM Studio **Allow local network access** is enabled; it worked on local and external networks. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30. See [the Tailscale integration goal](6.tailscale-integration-goal.md).
 
 - ✅ Done: Created initial requirements for the Android-to-OneDrive-to-Windows-to-Excel workflow.
 - ✅ Done: Documented feasibility findings and integration risks.

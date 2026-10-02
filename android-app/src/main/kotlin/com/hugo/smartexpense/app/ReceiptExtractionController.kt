@@ -123,7 +123,7 @@ data class ReceiptReviewState(
 
     companion object {
         fun manual(message: String, rawModelOutput: String = "") = ReceiptReviewState(
-            message = "$message Enter the receipt details manually, or choose another image and retry.",
+            message = "$message Enter the receipt details manually, retry extraction for the selected image, or choose another image.",
             rawModelOutput = rawModelOutput,
             manualEntryRequired = true,
         )

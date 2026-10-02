@@ -6,13 +6,18 @@ import com.hugo.smartexpense.extraction.OpenAiCompatibleApiTransport
 import java.net.HttpURLConnection
 import java.net.URL
 
-class AndroidOpenAiCompatibleApiTransport : OpenAiCompatibleApiTransport {
+class AndroidOpenAiCompatibleApiTransport(
+    private val connectTimeoutMillis: Int = CONNECT_TIMEOUT_MILLIS,
+    private val readTimeoutMillis: Int = READ_TIMEOUT_MILLIS,
+    private val onConnection: (HttpURLConnection) -> Unit = {},
+) : OpenAiCompatibleApiTransport {
     override fun send(request: OpenAiCompatibleApiRequest): OpenAiCompatibleApiResponse {
         val connection = (URL(request.url).openConnection() as HttpURLConnection)
         try {
+            onConnection(connection)
             connection.requestMethod = "POST"
-            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
-            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.connectTimeout = connectTimeoutMillis
+            connection.readTimeout = readTimeoutMillis
             connection.doOutput = true
             request.headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             connection.outputStream.use { output -> output.write(request.body.toByteArray(Charsets.UTF_8)) }

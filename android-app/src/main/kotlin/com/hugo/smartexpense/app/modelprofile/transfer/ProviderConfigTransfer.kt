@@ -23,6 +23,7 @@ data class ProviderConfigProfileV1(
     val modelId: String,
     val inputMode: RemoteInputMode,
     val structuredOutputFormat: RemoteStructuredOutputFormat,
+    val showTailscaleToggle: Boolean = false,
 )
 
 data class ProviderConfigSelectorV1(
@@ -75,6 +76,7 @@ class ProviderConfigJsonCodec(
                         .key("modelId").value(profile.modelId)
                         .key("inputMode").value(profile.inputMode.name)
                         .key("structuredOutputFormat").value(profile.structuredOutputFormat.name)
+                        .key("showTailscaleToggle").value(profile.showTailscaleToggle)
                         .endObject()
                 }
             }
@@ -87,7 +89,7 @@ class ProviderConfigJsonCodec(
         try {
             val root = JSONObject(json)
             val version = root.requiredInt("schemaVersion")
-            if (version != SCHEMA_VERSION) {
+            if (version !in 1..SCHEMA_VERSION) {
                 throw ProviderConfigException("Provider configuration schema version $version is not supported.")
             }
             if (root.requiredBoolean("credentialsIncluded")) {
@@ -147,6 +149,7 @@ class ProviderConfigJsonCodec(
                             modelId = validation.normalizedModelId,
                             inputMode = inputMode,
                             structuredOutputFormat = outputFormat,
+                            showTailscaleToggle = if (version == 1) false else profileObject.requiredBoolean("showTailscaleToggle"),
                         ),
                     )
                 }
@@ -201,7 +204,7 @@ class ProviderConfigJsonCodec(
     }
 
     companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
     }
 }
 
@@ -231,6 +234,7 @@ class ProviderConfigTransferService(
                         profile.modelId,
                         profile.inputMode,
                         profile.structuredOutputFormat,
+                        profile.showTailscaleToggle,
                     )
                 },
             ),
@@ -266,6 +270,7 @@ class ProviderConfigTransferService(
                 credentialAlias = ModelProfile.credentialAlias(finalId),
                 createdAtEpochMillis = now,
                 updatedAtEpochMillis = now,
+                showTailscaleToggle = imported.showTailscaleToggle,
             )
         }
         repository.saveProfiles(profiles)

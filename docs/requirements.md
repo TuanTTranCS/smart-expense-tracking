@@ -1,6 +1,6 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-09-21
+Last updated: 2026-10-01
 
 ## Purpose
 
@@ -10,7 +10,7 @@ Build a private-first expense capture workflow where an Android phone extracts o
 
 Overall feasibility: feasible for an MVP, with a few integration details to resolve before implementation.
 
-Pre-implementation validation: LM Studio served through Tailscale Serve was reachable from a physical Pixel 7 using `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` as the profile base URL, without the LM Studio `:1234` port, on both local and external networks when LM Studio's **Allow local network access** was enabled. App-driven Tailscale control and status behavior remain unimplemented; see [the Tailscale integration goal](6.tailscale-integration-goal.md).
+Physical endpoint validation: LM Studio served through Tailscale Serve was reachable from a physical Pixel 7 using `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` as the profile base URL, without the LM Studio `:1234` port, on local and external networks when LM Studio's **Allow local network access** was enabled. Hugo reports successful app-driven Tailscale connect/disconnect. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30. See [the Tailscale integration goal](6.tailscale-integration-goal.md).
 
 High-confidence parts:
 - Android can capture a receipt photo or let the user select one from local/cloud-backed media.
@@ -153,6 +153,12 @@ REQ-M-024: The app shall validate and preview a provider-configuration JSON file
 
 REQ-M-025: Provider-configuration export and import shall use Android's Storage Access Framework without broad storage permissions, allowing the user to choose Downloads or another document-provider location. Cancellation, invalid files, and document read/write failures shall not change saved provider profiles and shall provide a clear recovery message where applicable.
 
+REQ-M-026: Remote profiles shall persist an independently editable, default-false `showTailscaleToggle` capability. Room v1-to-v2 migration shall preserve profile metadata, credentials, selection and remote opt-in while defaulting the flag to false. Provider-configuration v2 shall round-trip the flag without credentials, retain validated/previewed atomic imports and conflict copying, and accept v1 imports with the flag defaulting to false.
+
+REQ-M-027: Tailscale commands shall require the current effective selected remote profile to exist and explicitly permit control. Connect/disconnect shall dispatch only the supported package-targeted broadcasts to `com.tailscale.ipn`; no profile change, extraction, or capability edit shall dispatch either command automatically. Endpoint reachability shall use the reusable models endpoint check with the immutable saved-profile URL and saved credentials, without receipt images, receipt text or inference, with 10-second attempts, 2-second retries and a 30-second overall connect deadline. Changing the effective profile shall cancel stale operations. Missing/unsupported installations, dispatch failures and timeouts shall provide recovery guidance.
+
+REQ-M-028: A reusable models endpoint checker shall accept caller-provided base URL, optional API key, relative models path (default `models`), and positive connect/read timeouts. It shall send only GET, return model IDs for a successful valid `data` array (including an empty array), and report invalid inputs, invalid responses, HTTP errors and network failures without exposing credentials or response bodies. Redirects shall not forward credentials. Response size shall be bounded to 1 MiB, and coroutine cancellation shall abort the underlying connection. This check shall be independent of Tailscale and profile persistence; the existing inference-based provider verification shall remain separate.
+
 REQ-UI-001: The Android app shall use separate Main and Settings destinations. Main shall contain only receipt-workflow controls plus Settings navigation chrome; Settings shall contain remote-provider opt-in, full profile management and transfer, and receipt-image preprocessing preferences, and shall not contain receipt import, review, or export controls.
 
 REQ-UI-002: Main shall provide compact selection of the local provider or an eligible saved remote profile, show the effective provider for the next extraction, and verify the selected provider without opening its editor. Local verification shall check the installed model file; remote verification shall use only saved metadata and its secure credential alias.
@@ -168,6 +174,12 @@ REQ-UI-006: Settings shall provide a persisted, default-off Debug output checkbo
 REQ-UI-007: After a selected receipt image has loaded and the `REQ-A-002A` preprocessing decision has completed, Main shall show an image-review affordance as a thumbnail or button. Activating it shall display the complete processed image without cropping. The displayed image shall be the same image supplied to extraction: the reduced JPEG when enabled preprocessing reduces a selection larger than 200 KB (204,800 bytes), and otherwise the original selected image. Replacing or clearing the selection shall update or remove the review affordance so a previous receipt is not shown.
 
 REQ-UI-008: The full-screen selected-receipt image viewer shall support pinch-to-zoom and visible, accessible Zoom in and Zoom out controls. It shall open with the complete image fitted in view, allow panning while zoomed, keep zoom and pan within bounded limits, and reset the view when closed, reopened, or shown for a different image. Zooming shall affect display only; it shall not change the processed image supplied to extraction, review fields, or export data.
+
+REQ-UI-009: Settings shall expose the per-profile Tailscale checkbox only in the remote-profile editor. Main shall show an accessible control only for an eligible effective remote profile, identify its name and saved endpoint, and display command requests, VPN detection and models endpoint reachability separately. The switch shall represent the last requested command. VPN detection shall report only VPN networks visible to this app, and shall not identify their owner or assert Tailscale connection; endpoint reachability shall not assert successful inference. Restart/resume shall refresh observations without issuing commands; extraction shall remain available. Local, disabled, missing and disallowed profiles shall hide the control and reject callbacks.
+
+REQ-UI-010: While the app is resumed and an eligible profile is selected, it shall observe VPN changes and check the models endpoint automatically at entry, after VPN detection changes, and again 15 seconds after each completed check. Each passive check shall have a 10-second deadline; connect readiness shall retain its bounded retries. Pausing the app, changing/editing/removing the profile, or revoking permission shall cancel stale checks; pausing shall also unregister network callbacks. Resume shall reset old request/observation state and recheck the current profile. Detection failures shall show unavailable/unknown rather than a false confirmed state. No observation shall automatically connect or disconnect Tailscale.
+
+REQ-UI-011: Main shall provide an accessible Retry extraction action once the selected image is loaded, including after extraction failure. Retry shall reuse the exact retained processed image without reopening the picker or loading/preprocessing it again, snapshot the currently effective provider while respecting remote opt-in/local fallback, retain the image preview, and replace the current reviews and transient debug/export previews. Retry shall be disabled during extraction, export, or provider configuration work. It shall not upload anything or alter persisted export records; an image-load failure shall require choosing an image again.
 
 ### Handoff File
 
@@ -462,6 +474,26 @@ AC-031: A JSON Schema extraction request is valid JSON with an outer receipts ar
 AC-032: After image selection and preprocessing, Main exposes a review thumbnail or button that opens the complete processed receipt image and can be dismissed with Back or a visible close action. With oversized-image reduction enabled, an input larger than 200 KB previews the same sub-200-KB JPEG bytes used for extraction; when reduction is disabled or unnecessary, it previews the original selected bytes. Selecting another receipt replaces the preview and a failed or cleared selection leaves no stale image.
 
 AC-033: The selected-image viewer opens at fit scale. Pinching and the labeled Zoom in/Zoom out controls change magnification within the defined range; dragging moves the image only while zoomed and cannot leave it lost offscreen. The controls reflect their minimum/maximum limits, Close and Back work at any zoom, and reopening or selecting another image restores fit scale without changing extraction, review, or export state.
+
+AC-034: Enabling the remote-profile checkbox persists through editing, restart and v2 provider transfer; migrated profiles and v1 imports default it to false. Main shows the control only for the selected, enabled, opted-in remote profile. Disallowed and stale callbacks send no commands; eligible requests use the saved endpoint/credential and no receipt data or inference. Connect retries until models endpoint reachability or its deadline, profile changes cancel stale checks, disconnect reports only a request, and resume resets and refreshes observations without disconnecting or blocking extraction.
+
+AC-035: Main displays VPN detected, no VPN detected for this app, or VPN detection unavailable separately from models endpoint checking/reachable/unavailable. External VPN changes update detection and trigger a fresh endpoint check without commands; periodic checks detect endpoint outages/recovery. A reachable LAN endpoint with no detected VPN does not turn the command switch on. Backgrounding stops checks and network callbacks; returning refreshes current observations. The reusable checker supports custom URL/path/key/timeouts, empty model lists, HTTP/invalid-response errors and prompt cancellation, with no credential leakage or receipt transmission.
+
+AC-036: After selecting and loading an image, Retry extraction sends that same processed image again with the provider selected at retry activation. Repeated taps while extracting or exporting start no extra request; changing provider while retry runs does not change its snapshot. A provider failure retains the image, manual-entry fallback, and retry action. Successful retry replaces prior edits/results/debug previews with the new receipt reviews, preserves the selected image and source URI, and makes no export request. Choosing another image makes subsequent retries use that image.
+
+## Extraction retry implementation verification
+
+✅ Done on 2026-10-01: `gradlew.bat test :android-app:testDebugUnitTest :android-app:assembleDebug :android-app:compileDebugAndroidTestKotlin --max-workers=2 --console=plain` succeeds. All 117 Android unit tests pass, including four new workflow retry regressions; the 38 shared JVM tests remain passing/up to date. Compose tests compile and the debug APK assembles. This verifies `REQ-UI-011` and `AC-036` for retained image/source URI, retry-time provider snapshots/local fallback, review/debug replacement, failure recovery, latest selection, busy guards, and independent export state, with regressions for `REQ-UI-004`, `REQ-UI-007`, `REQ-M-004`, `REQ-M-009`, `REQ-M-019`, and `REQ-A-016`. The Compose action test was not executed in this task.
+
+Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-01. Individual test scenarios were not recorded.
+
+## Tailscale implementation verification
+
+Final live status UI verification: ✅ Done — the targeted `:android-app:connectedDebugAndroidTest` run for `TailscaleControlTest`, `ModelProfilesPanelTest` and `ReceiptWorkflowScreenTest` passes all ten tests on the Pixel 8a API 35 emulator on 2026-09-30. Together with the unit/build evidence below, this completes automated verification for `REQ-M-027..028`, `REQ-UI-009..010` and `AC-034..035`.
+
+Live status extension verified 2026-09-30 with `.\gradlew.bat test :android-app:assembleDebug :android-app:compileDebugAndroidTestKotlin --max-workers=2`: shared tests and all 113 Android unit tests pass, Compose tests compile and the debug APK assembles. New VPN snapshot/callback/loss/cleanup, external status changes, profile/lifecycle cancellation, periodic reachability, custom checker inputs, HTTP/response/redirect/size failures, saved credentials and socket cancellation cover `REQ-M-027..028`, `REQ-UI-009..010` and `AC-034..035`. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30. The original rollout evidence follows.
+
+Verified 2026-09-30 with `.\gradlew.bat test :android-app:assembleDebug` and targeted `:android-app:connectedDebugAndroidTest` runs for `TailscaleControlTest`, `ModelProfilesPanelTest`, and `ReceiptWorkflowScreenTest` on the Pixel 8a API 35 emulator. All 38 shared JVM tests, 104 Android unit tests and nine affected Compose tests pass; the final combined run succeeds. Room v2 schema is exported. This verifies `REQ-M-026..027`, `REQ-UI-009` and `AC-034`, with regression coverage for existing provider/privacy/transfer/navigation and receipt-screen behavior. The emulator's blocking System UI ANR dialog was cleared before the successful final run. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-09-30.
 
 ## Windows implementation verification
 

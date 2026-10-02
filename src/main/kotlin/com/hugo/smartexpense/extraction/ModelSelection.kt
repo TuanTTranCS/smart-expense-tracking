@@ -30,6 +30,7 @@ data class OpenAiCompatibleProviderOption(
     val inputMode: RemoteInputMode,
     val apiKeyAlias: String,
     val structuredOutputFormat: RemoteStructuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT,
+    val showTailscaleToggle: Boolean = false,
 )
 
 data class ModelSelectorSettings(
@@ -46,6 +47,7 @@ data class SelectedModelProvider(
     val modelId: String,
     val supportsDirectImageInput: Boolean,
     val baseUrl: String? = null,
+    val showTailscaleToggle: Boolean = false,
 )
 
 class ModelSelector {
@@ -61,6 +63,7 @@ class ModelSelector {
                 modelId = selectedRemoteProvider.modelId,
                 supportsDirectImageInput = selectedRemoteProvider.inputMode == RemoteInputMode.DIRECT_IMAGE,
                 baseUrl = normalizeBaseUrl(selectedRemoteProvider.baseUrl),
+                showTailscaleToggle = selectedRemoteProvider.showTailscaleToggle,
             )
         }
 

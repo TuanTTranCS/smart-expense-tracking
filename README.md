@@ -20,6 +20,7 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 ### 1. Capture and review on Android
 
 - Import a receipt image and inspect the processed image with pinch or Zoom in/Zoom out controls.
+- Use **Retry extraction** on Main to resend the selected image with the currently selected provider; this replaces the current review results.
 - Review each distinct transaction separately, correct fields when needed, and export low-confidence receipts as `confirmed` or corrected receipts as `manual`.
 - Keep receipt work on Main, with provider, OneDrive, image-preprocessing, and device-name settings in Settings.
 
@@ -27,6 +28,7 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 
 - Use the privacy-first local LiteRT-LM provider when its Gemma 4 E2B model is installed, or explicitly opt in to a saved OpenAI-compatible provider.
 - Manage multiple provider profiles securely and import or export their configuration without credentials.
+- Enable **Show Tailscale control on Main** per remote profile for on-demand connect/disconnect requests. Install and sign in to Tailscale first; save the Tailscale Serve URL `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` without `:1234`, with LM Studio **Allow local network access** enabled. Main shows live VPN detection and checks `GET /models` while foregrounded, with up to 30 seconds of connect retries. VPN detection cannot identify Tailscale; models reachability does not verify inference. See [the reusable checker inputs](docs/6.tailscale-integration-goal.md#reusable-models-endpoint-check).
 
 ### 3. Hand off the receipt through OneDrive
 

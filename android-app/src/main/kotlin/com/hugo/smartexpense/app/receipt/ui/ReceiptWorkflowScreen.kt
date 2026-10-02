@@ -70,9 +70,11 @@ fun ReceiptWorkflowScreen(
     onVerifyProvider: () -> Unit,
     onOneDriveRecovery: (OneDriveRecoveryAction) -> Unit,
     onChooseReceipt: () -> Unit,
+    onRetryExtraction: () -> Unit,
     onReviewChange: (Int, ReceiptReviewState) -> Unit,
     onExport: (Int) -> Unit,
     debugOutputEnabled: Boolean = false,
+    onTailscaleRequest: (Boolean) -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -91,6 +93,7 @@ fun ReceiptWorkflowScreen(
             onSelectRemote = onSelectRemote,
         )
         val selectedId = profileState.selectedEffectiveProviderId()
+        com.hugo.smartexpense.app.tailscale.TailscaleControl(profileState, onTailscaleRequest)
         profileState.verification?.takeIf { it.providerId == selectedId }?.let {
             ProviderVerificationMessage(it)
         }
@@ -106,6 +109,14 @@ fun ReceiptWorkflowScreen(
             enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy,
             onClick = onChooseReceipt,
         ) { Text(if (workflowState.extracting) "Extracting" else "Choose receipt") }
+        if (workflowState.selectedImage != null) {
+            OutlinedButton(
+                enabled = workflowState.canRetryExtraction && !profileState.busy,
+                onClick = onRetryExtraction,
+                modifier = Modifier.semantics { contentDescription = "Retry extraction for selected image" },
+            ) { Text("Retry extraction") }
+            Text("Retry uses the selected provider and replaces the current review results.", style = MaterialTheme.typography.bodySmall)
+        }
         SelectedReceiptImageReview(workflowState.selectedImage)
         val rawOutput = workflowState.reviews.firstOrNull()?.rawModelOutput.orEmpty()
         if (debugOutputEnabled && rawOutput.isNotBlank()) {
