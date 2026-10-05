@@ -22,6 +22,11 @@ class RoomModelProfileRepository(
     override suspend fun saveProfiles(profiles: List<ModelProfile>) =
         dao.upsertProfilesAtomically(profiles.map(ModelProfileEntity::fromDomain))
 
+    override suspend fun credentialAliasInUse(alias: String): Boolean = dao.credentialAliasInUse(alias)
+
+    override suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) =
+        dao.insertDuplicate(ModelProfileEntity.fromDomain(sourceSnapshot), ModelProfileEntity.fromDomain(copy))
+
     override suspend fun selectProfile(id: String?) {
         dao.selectExistingProfile(id)
     }

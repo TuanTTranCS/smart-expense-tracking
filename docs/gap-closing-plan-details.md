@@ -1,6 +1,21 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-10-01
+Last updated: 2026-10-04
+
+## Gap 12: Profile Duplication and Provider Model Discovery
+
+Planning and implementation status: ✅ Done on 2026-10-04. Independent review, 38 shared JVM tests, 149 Android unit tests, all 18 Pixel 8a API 35 device tests, and debug assembly pass. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-04. Live OpenRouter validation remains pending.
+
+- Emulator capability check: ✅ Done on 2026-10-04. Existing Pixel 8a Android 15/API 35 AVD boots with WHPX; current debug assembly and both profile/Settings Compose device tests pass (2 tests, no failures/errors/skips). ADB installation, normal launch, Settings navigation, UI hierarchy capture, and screenshot inspection also succeeded. This is current-app testing capability, not feature validation. Run implemented-feature tests on this emulator before Hugo's physical-device verification; see the plan's capability evidence and command.
+- Plan: [Duplicate profile and provider model selector](8.duplicate-profile-and-model-selector-plan.md).
+- ✅ Done: Corrected the outdated APK on Hugo's visible Pixel 8a emulator on 2026-10-04. Rebuilt, reran the 38 shared/149 Android unit tests, and installed with `adb install -r` to preserve data. Installed/build checksums match; screenshots and UI hierarchies confirm Duplicate profile and Load models, with the original profile and remote opt-in preserved. README now clarifies that opening an emulator does not update its installed app.
+- ✅ Done: Settings duplication copies all saved fields and the credential with exact ` (copy)` naming, independent IDs/aliases, durable key-first writes and transactional conflict-abort insertion. Mutation guards, compensation and uncertain-commit reference checks protect existing profiles and selector state.
+- ✅ Done: Explicit compatible model loading/search preserves manual input, exact IDs and draft-only selection; separate transient statuses and token/credential/editor generations prevent stale results across changes, overlapping requests, editor close and lifecycle pause/stop/disposal.
+- Native-provider response/auth/pagination adapters are deferred by Hugo's confirmed compatible scope; native inference requires separate provider work.
+- ✅ Done: Service, credential/persistence failures, real Room/encrypted-store reopen, HTTP/parser, ViewModel, Compose lifecycle/navigation and existing regressions pass. Checked `REQ-M-029..030`, `REQ-UI-013`, `AC-038..039` and the plan's existing-requirements mapping.
+- ✅ Done: Direct emulator UI checking duplicated the configured LM Studio profile while remote providers were disabled, loaded 17 live models, searched with the keyboard visible, saved only the copy's new model and confirmed independence after app restart. Live OpenRouter validation remains pending.
+- ✅ Done: Physical-device validation on Pixel 7, confirmed by Hugo on 2026-10-04. Individual device scenarios and provider-specific results were not recorded.
+- ✅ Done: README contains a concise feature note; requirements, current status and the plan record results. A process death between encrypted key storage and Room insertion can leave an unreferenced alias; no broad cleanup is added. Preimplementation capability evidence above remains historical.
 
 ## Gap 11: Android System-Bar Layout
 
@@ -82,6 +97,7 @@ Resolution path:
 - ✅ Done: Confirmed normalized receipt JPEGs use `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM/YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg`.
 - In Progress: MSAL silent token acquisition and refresh handling are implemented, and the Entra Android debug registration is configured. OneDrive access and JSON-file saving have been validated on a physical device; verify silent restore, disconnect, reconnect, and interrupted retry.
 - ✅ Done: Fixed the Connect no-op caused by sandbox-specific debug signing. The build selects the stable host debug keystore (with explicit overrides available) and verifies its certificate against the MSAL JSON redirect and manifest callback before every debug build.
+- ✅ Done: Documented how to carry the registered debug keystore to a new PC, and how to replace its Entra registration if the original key is unavailable.
 - ✅ Done: Implemented image-first Graph upload using the authentication boundary, followed by temporary-name and final-name Version 2 JSON publication.
 - ✅ Done: Persist stable expense/export identity, normalized local JPEG, failure state, and paired paths so restart/retry cannot create duplicates.
 - Pending: Validate interrupted retry on the Pixel 7 with the real Entra registration.

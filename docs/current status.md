@@ -3,14 +3,23 @@
 - ✅ Done: Set the Android launcher label to `Smart Expense Tracking` and configured the supplied `images/smart-expense.png` as the launcher icon resource.
 - ✅ Done: Verified the `Smart Expense Tracking` launcher name and supplied logo on a physical Pixel 7 on 2026-09-12.
 - ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
+- ✅ Done: Documented cross-PC MSAL debug signing recovery: reuse the original ignored debug keystore to retain the current Entra redirect, or register a replacement certificate and update both redirect values.
 
-Last updated: 2026-10-01
+Last updated: 2026-10-04
 
 ## Overall Status
 
 The Android app now uses separate Main and Settings destinations. Main owns the receipt workflow, compact provider selection/verification, and contextual OneDrive readiness; Settings owns remote opt-in, full profile management/transfer, and image preprocessing. Receipt state is held above navigation, provider and preprocessing choices are snapshotted per extraction, and local verification checks the installed Gemma model before the wired LiteRT-LM runtime is used. Persistent multi-profile management, secure per-profile credentials, provider configuration transfer, and image-first OneDrive export remain intact. Automated verification passes, and the separated app was successfully tested on a physical Pixel 7 on 2026-09-11. The Windows Hermes/PowerShell design is now decision-complete in `docs/3.excel-update-hermes-goal.md`, but its scripts, tests, copied-workbook canary, and paused cron job are not yet implemented.
 
 ## Completed
+
+- ✅ Done: Resolved missing profile controls on Hugo's visible Pixel 8a emulator on 2026-10-04. Its installed APK differed from the current build and its Settings hierarchy had no Duplicate action. Rebuilt and updated `emulator-5554` with data-preserving `adb install -r`; installed/build SHA-256 values now match. Visually verified Duplicate profile and the editor's Load models, preserving the LM Studio profile and disabled remote opt-in. Shared tests (38), Android unit tests (149), and debug assembly pass; a temporary Windows build-file lock cleared on retry with one worker. Checked the controls against `REQ-UI-013`; added a short README reminder to install/run after code changes.
+
+- ✅ Done: Implemented and independently reviewed [profile duplication and compatible model discovery](8.duplicate-profile-and-model-selector-plan.md) on 2026-10-04. Copies preserve every provider field and stored key with independent identities/aliases, exact ` (copy)` names, checked durable storage and transactional conflict-abort insertion; selection and opt-in stay unchanged. The editor loads/searches exact model IDs with manual fallback and stale/lifecycle cancellation. All 38 shared JVM tests, 149 Android unit tests, 18 Pixel 8a API 35 device tests and debug assembly pass. Direct emulator UI checking loaded 17 models from configured LM Studio, selected/saved a model only in the copy and confirmed independent values after restart. Added `REQ-M-029..030`, `REQ-UI-013`, `AC-038..039`; README updated. Physical-device validation: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-04; individual device scenarios and provider-specific results were not recorded. Live OpenRouter validation remains pending; native adapters are deferred. Cross-store process death can leave an unreferenced encrypted alias; see the plan's recovery limit.
+
+- ✅ Done: Verified emulator self-testing capability on 2026-10-04 before [duplication/model picker implementation](8.duplicate-profile-and-model-selector-plan.md#emulator-testing-capability-check--2026-10-04). Booted Pixel 8a Android 15/API 35 with WHPX, built the then-current debug app, and passed both existing profile/Settings Compose device tests (2 passed; no failures/errors/skips). Installed/launched the app, navigated to Settings, and visually inspected an ADB screenshot. This historical check changed no application code; the completed feature verification is recorded above.
+
+- ✅ Done: Wrote [the profile duplication and provider model selector plan](8.duplicate-profile-and-model-selector-plan.md) on 2026-10-04. It covers independent credential copying, exact ` (copy)` naming, compatible models endpoint reuse, manual-entry fallback, optional native adapters, requirements, unit/UI tests, and build verification. README reviewed; no update needed until implementation.
 
 - ✅ Done: Fixed Android system-bar overlap on Main and Settings on 2026-10-01. The shared app container reserves and consumes safe drawing insets outside the scroll viewport; explicit edge-to-edge setup and keyboard resize handling keep the layout consistent. All 121 Android unit tests pass, including four Robolectric Compose regressions for gesture/three-button bottom bars, changing keyboard space, and single consumption of side insets. Shared JVM tests remain passing/up to date, device UI tests compile, and the debug APK assembles. Checked `REQ-UI-012`, `AC-037`, and existing Main/Settings, Debug, and export requirements. Physical-device validation: ✅ Done, confirmed by Hugo on 2026-10-01. README reviewed; no change needed for this layout correction.
 
@@ -93,6 +102,8 @@ The Android app now uses separate Main and Settings destinations. Main owns the 
 - ✅ Done: Removed the remaining trailing comma from the nested receipt schema after LM Studio strictly rejected the request even though the lenient JVM `org.json` test parser accepted it. Added raw-request regression coverage and a narrow recovery path that retries a JSON-schema extraction once without `response_format` only when the provider returns HTTP 400 `invalid_json`. Full shared tests, Android unit tests, Compose test compilation, and debug APK assembly passed on 2026-09-19. Verified against REQ-M-002, REQ-M-003A, REQ-M-013, REQ-M-014, and AC-031; Hugo confirmed successful LM Studio receipt-image extraction on a physical Pixel 7 on 2026-09-19.
 
 ## In Progress
+
+- Pending provider validation: Settings profile duplication/model discovery is implemented, emulator-verified and confirmed by Hugo on Pixel 7 on 2026-10-04. Live OpenRouter checking remains pending. Native adapters are deferred by the confirmed compatible scope.
 
 - Phase 1 integration spike planning and exploration.
 - Concrete Phase 1 plan: `docs/1.integration-plan.md`.

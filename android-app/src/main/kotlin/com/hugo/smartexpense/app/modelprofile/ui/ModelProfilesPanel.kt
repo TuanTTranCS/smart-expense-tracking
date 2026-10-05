@@ -1,6 +1,10 @@
 package com.hugo.smartexpense.app.modelprofile.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -111,6 +115,7 @@ fun ModelProfilesPanel(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileList(
     state: ModelProfilesUiState,
@@ -132,7 +137,7 @@ private fun ProfileList(
                 Text("${profile.modelId} • ${profile.inputMode.name.lowercase().replace('_', ' ')}")
                 Text(profile.baseUrl)
                 if (selected) Text("Selected for next extraction", color = MaterialTheme.colorScheme.primary)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.selectProfile(profile) },
                         enabled = !selected && state.selectorState.remoteProvidersEnabled && !state.busy,
@@ -140,6 +145,11 @@ private fun ProfileList(
                     OutlinedButton(onClick = { viewModel.editProfile(profile) }, enabled = !state.busy) { Text("Edit") }
                     TextButton(onClick = { deleteTarget = profile }, enabled = !state.busy) { Text("Delete") }
                 }
+                OutlinedButton(
+                    onClick = { viewModel.duplicateProfile(profile.id) },
+                    enabled = !state.busy,
+                    modifier = Modifier.semantics { contentDescription = "Duplicate profile ${profile.displayName}" },
+                ) { Text("Duplicate profile") }
             }
         }
     }
@@ -168,6 +178,7 @@ private fun ProfileList(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileEditor(
     editor: ModelProfileEditorState,
@@ -185,25 +196,47 @@ private fun ProfileEditor(
         onValueChange = { update(draft.copy(displayName = it)) },
         label = "Display name",
         error = editor.validationErrors[ModelProfileField.DISPLAY_NAME],
+        enabled = !busy,
     )
     ProfileField(
         value = draft.baseUrl,
         onValueChange = { update(draft.copy(baseUrl = it)) },
         label = "Base URL",
         error = editor.validationErrors[ModelProfileField.BASE_URL],
+        enabled = !busy,
     )
     ProfileField(
         value = draft.modelId,
         onValueChange = { update(draft.copy(modelId = it)) },
         label = "Model ID",
         error = editor.validationErrors[ModelProfileField.MODEL_ID],
+        enabled = !busy,
     )
+    OutlinedButton(onClick = viewModel::loadModels, enabled = !busy) { Text("Load models") }
+    Text("Loading models sends only a model-list request. You can always enter a model ID manually.")
+    editor.catalogEndpoint?.let { Text("Models endpoint: $it", style = MaterialTheme.typography.bodySmall) }
+    when (val catalog = editor.catalogState) {
+        ModelCatalogState.Idle -> Unit
+        is ModelCatalogState.Loading -> {
+            Text("Loading models...")
+            TextButton(onClick = viewModel::cancelModelDiscovery) { Text("Cancel model loading") }
+        }
+        is ModelCatalogState.Loaded -> {
+            Text("Loaded ${catalog.models.size} models. Listing does not verify receipt support or inference access.")
+            TextButton(onClick = viewModel::openModelPicker, enabled = !busy) { Text("Choose model") }
+            if (editor.modelPickerOpen) ModelPicker(catalog, viewModel)
+        }
+        ModelCatalogState.Empty -> Text("The endpoint is reachable but returned no models. Enter a model ID manually.")
+        is ModelCatalogState.Failed -> Text("Models could not be loaded: ${catalog.reason} Manual model entry is available.")
+        ModelCatalogState.Cancelled -> Text("Model loading cancelled. Your draft was kept.")
+    }
     OutlinedTextField(
         value = draft.apiKey,
         onValueChange = { update(draft.copy(apiKey = it)) },
         label = { Text(if (editor.hasStoredCredential) "Replacement API key (leave blank to retain)" else "API key") },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
+        enabled = !busy,
         modifier = Modifier.fillMaxWidth(),
     )
     if (editor.hasStoredCredential) {
@@ -214,22 +247,26 @@ private fun ProfileEditor(
         selected = draft.inputMode == RemoteInputMode.DIRECT_IMAGE,
         label = "Direct image",
         onClick = { update(draft.copy(inputMode = RemoteInputMode.DIRECT_IMAGE)) },
+        enabled = !busy,
     )
     EnumChoice(
         selected = draft.inputMode == RemoteInputMode.OCR_TEXT,
         label = "OCR text",
         onClick = { update(draft.copy(inputMode = RemoteInputMode.OCR_TEXT)) },
+        enabled = !busy,
     )
     Text("Structured output")
     EnumChoice(
         selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA,
         label = "JSON schema",
         onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA)) },
+        enabled = !busy,
     )
     EnumChoice(
         selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_OBJECT,
         label = "JSON object",
         onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)) },
+        enabled = !busy,
     )
     Row {
         Checkbox(
@@ -243,7 +280,7 @@ private fun ProfileEditor(
     Text("When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.")
     Text("Testing sends a connectivity prompt to this remote endpoint. It does not save or select the profile.")
     editor.testStatus?.let { Text(it) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = viewModel::testProfile, enabled = locallyValid && !busy) { Text("Test provider") }
         Button(onClick = { viewModel.saveProfile(false) }, enabled = locallyValid && !busy) { Text("Save") }
         Button(onClick = { viewModel.saveProfile(true) }, enabled = locallyValid && !busy) { Text("Save and select") }
@@ -265,12 +302,13 @@ private fun ProfileEditor(
 }
 
 @Composable
-private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: String, error: String?) {
+private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: String, error: String?, enabled: Boolean = true) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         isError = error != null,
+        enabled = enabled,
         supportingText = error?.let { { Text(it) } },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
@@ -278,9 +316,34 @@ private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: 
 }
 
 @Composable
-private fun EnumChoice(selected: Boolean, label: String, onClick: () -> Unit) {
+private fun EnumChoice(selected: Boolean, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     Row {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
         Text(label, Modifier.padding(top = 12.dp))
     }
+}
+
+@Composable
+private fun ModelPicker(catalog: ModelCatalogState.Loaded, viewModel: ModelProfilesViewModel) {
+    var search by remember(catalog) { mutableStateOf("") }
+    val matching = catalog.models.filter { it.id.contains(search, ignoreCase = true) }
+    AlertDialog(
+        onDismissRequest = viewModel::dismissModelPicker,
+        title = { Text("Choose model") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search models") }, singleLine = true)
+                if (matching.isEmpty()) Text("No matching models. Try another search or enter a model ID manually.")
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(matching, key = { it.id }) { model ->
+                        TextButton(
+                            onClick = { viewModel.selectCatalogModel(model.id) },
+                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Choose model ${model.id}" },
+                        ) { Text(model.id) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = viewModel::dismissModelPicker) { Text("Close picker") } },
+    )
 }

@@ -2,6 +2,7 @@ package com.hugo.smartexpense.app.connectivity
 
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.SocketTimeoutException
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
@@ -23,8 +24,28 @@ class ModelsEndpointInput(
 sealed interface ModelsEndpointResult {
     /** An empty list is reachable too; this does not verify model loading or inference. */
     data class Reachable(val modelIds: List<String>) : ModelsEndpointResult
-    data class Unavailable(val reason: String, val httpStatus: Int? = null) : ModelsEndpointResult
+    data class Unavailable(
+        val reason: String,
+        val httpStatus: Int? = null,
+        val kind: ModelsEndpointFailure = ModelsEndpointFailure.NETWORK,
+    ) : ModelsEndpointResult
 }
+
+enum class ModelsEndpointFailure { INVALID_INPUT, INVALID_LIST, TOO_LARGE, TIMEOUT, NETWORK, HTTP }
+
+/** Shared discovery validation; returns only a credential-free endpoint safe for display. */
+fun modelsEndpointUrl(input: ModelsEndpointInput): String? = runCatching {
+    require(input.connectTimeoutMillis > 0 && input.readTimeoutMillis > 0)
+    require(input.modelsPath.isNotBlank() && !input.modelsPath.startsWith("/"))
+    val base = URI(input.baseUrl.trim().trimEnd('/') + "/")
+    require(base.scheme in listOf("http", "https") && base.host != null)
+    require(base.rawUserInfo == null && base.rawQuery == null && base.rawFragment == null)
+    val resolved = base.resolve(input.modelsPath)
+    require(resolved.scheme == base.scheme && resolved.authority == base.authority)
+    require(resolved.path.startsWith(base.path) && resolved.rawFragment == null && resolved.rawQuery == null)
+    require(input.apiKey?.any { it.code < 32 || it.code == 127 } != true)
+    resolved.toURL().toString()
+}.getOrNull()
 
 fun interface ModelsEndpointChecker {
     suspend fun check(input: ModelsEndpointInput): ModelsEndpointResult
@@ -33,20 +54,8 @@ fun interface ModelsEndpointChecker {
 /** Cancellable, bounded GET of an OpenAI-compatible model list. No prompts or receipt input. */
 class HttpModelsEndpointChecker : ModelsEndpointChecker {
     override suspend fun check(input: ModelsEndpointInput): ModelsEndpointResult {
-        val url = try {
-            require(input.connectTimeoutMillis > 0 && input.readTimeoutMillis > 0)
-            require(input.modelsPath.isNotBlank() && !input.modelsPath.startsWith("/"))
-            val base = URI(input.baseUrl.trim().trimEnd('/') + "/")
-            require(base.scheme in listOf("http", "https") && base.host != null)
-            require(base.rawUserInfo == null && base.rawQuery == null && base.rawFragment == null)
-            val resolved = base.resolve(input.modelsPath)
-            require(resolved.scheme == base.scheme && resolved.authority == base.authority)
-            require(resolved.path.startsWith(base.path) && resolved.rawFragment == null && resolved.rawQuery == null)
-            require(input.apiKey?.contains('\r') != true && input.apiKey?.contains('\n') != true)
-            resolved.toURL()
-        } catch (_: Exception) {
-            return ModelsEndpointResult.Unavailable("Invalid models endpoint inputs.")
-        }
+        val url = modelsEndpointUrl(input)?.let { URI(it).toURL() }
+            ?: return ModelsEndpointResult.Unavailable("Invalid models endpoint inputs.", kind = ModelsEndpointFailure.INVALID_INPUT)
         return suspendCancellableCoroutine { continuation ->
             val connection = AtomicReference<HttpURLConnection?>()
             val task = executor.submit {
@@ -67,7 +76,7 @@ class HttpModelsEndpointChecker : ModelsEndpointChecker {
                     if (status !in 200..299) {
                         ModelsEndpointResult.Unavailable(
                             if (status == 401 || status == 403) "Models endpoint denied access. Check credentials."
-                            else "Models endpoint returned HTTP $status.", status,
+                            else "Models endpoint returned HTTP $status.", status, ModelsEndpointFailure.HTTP,
                         )
                     } else {
                         val body = opened.inputStream.use { stream ->
@@ -80,9 +89,11 @@ class HttpModelsEndpointChecker : ModelsEndpointChecker {
                             }
                             output.toByteArray()
                         }
-                        if (body.size > MAX_RESPONSE_BYTES) ModelsEndpointResult.Unavailable("Models response is too large.")
+                        if (body.size > MAX_RESPONSE_BYTES) ModelsEndpointResult.Unavailable("Models response is too large.", kind = ModelsEndpointFailure.TOO_LARGE)
                         else parseModels(body.toString(Charsets.UTF_8))
                     }
+                } catch (_: SocketTimeoutException) {
+                    ModelsEndpointResult.Unavailable("Models endpoint timed out.", kind = ModelsEndpointFailure.TIMEOUT)
                 } catch (_: Exception) {
                     ModelsEndpointResult.Unavailable("Models endpoint unavailable. Check the URL and network connection.")
                 } finally {
@@ -107,7 +118,7 @@ class HttpModelsEndpointChecker : ModelsEndpointChecker {
         }
         ModelsEndpointResult.Reachable(ids)
     } catch (_: Exception) {
-        ModelsEndpointResult.Unavailable("Endpoint did not return a valid models list.")
+        ModelsEndpointResult.Unavailable("Endpoint did not return a valid models list.", kind = ModelsEndpointFailure.INVALID_LIST)
     }
 
     private companion object {

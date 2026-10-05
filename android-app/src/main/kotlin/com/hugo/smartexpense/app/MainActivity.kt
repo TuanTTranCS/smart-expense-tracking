@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
                 resolver = resolver,
                 testService = DefaultModelProfileTestService(keyStore) { RemoteModelClientFactory(it) },
                 migrator = migrator,
+                catalogService = com.hugo.smartexpense.app.modelprofile.domain.CompatibleProviderModelCatalogService(),
                 tailscaleController = com.hugo.smartexpense.app.tailscale.AndroidTailscaleController(this),
                 tailscaleProbe = com.hugo.smartexpense.app.tailscale.SavedProfileReadinessProbe(keyStore),
                 vpnStatusSource = com.hugo.smartexpense.app.connectivity.AndroidVpnStatusSource(this),

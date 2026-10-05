@@ -16,6 +16,8 @@ import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 class RoomModelProfileRepositoryTest {
@@ -70,6 +72,71 @@ class RoomModelProfileRepositoryTest {
         )
         assertEquals("selected", repository.observeSelectorState().first().selectedRemoteProfileId)
         assertEquals(true, repository.observeSelectorState().first().remoteProvidersEnabled)
+    }
+
+    @Test fun duplicateInsertionPersistsEveryFieldWithoutChangingSelection() = runTest {
+        val source = profile("source", "Provider").copy(showTailscaleToggle = true)
+        val copy = source.copy(id = "copy", displayName = "Provider (copy)", credentialAlias = "remote-provider:copy",
+            createdAtEpochMillis = 100, updatedAtEpochMillis = 100)
+        repository.saveProfile(source)
+        repository.selectProfile(source.id)
+        repository.setRemoteProvidersEnabled(true)
+        repository.insertDuplicate(source, copy)
+        val recreated = RoomModelProfileRepository(database.modelProfileDao())
+        assertEquals(copy, recreated.getProfile(copy.id))
+        assertEquals(source, recreated.getProfile(source.id))
+        assertEquals(source.id, recreated.observeSelectorState().first().selectedRemoteProfileId)
+        assertTrue(recreated.observeSelectorState().first().remoteProvidersEnabled)
+    }
+
+    @Test fun duplicateInsertionRejectsChangedDeletedSourceAndIdentityOrAliasCollisions() = runTest {
+        val source = profile("source", "Provider")
+        val copy = source.copy(id = "copy", credentialAlias = "remote-provider:copy")
+        repository.saveProfile(source)
+        repository.saveProfile(source.copy(modelId = "changed"))
+        assertFailsWith<IllegalStateException> { repository.insertDuplicate(source, copy) }
+        assertNull(repository.getProfile(copy.id))
+        repository.deleteProfile(source.id)
+        assertFailsWith<IllegalStateException> { repository.insertDuplicate(source, copy) }
+        repository.saveProfile(source)
+        val existing = profile("copy", "Keep me").copy(credentialAlias = "independent")
+        repository.saveProfile(existing)
+        assertFailsWith<android.database.sqlite.SQLiteConstraintException> { repository.insertDuplicate(source, copy) }
+        assertEquals(existing, repository.getProfile("copy"))
+        repository.deleteProfile("copy")
+        repository.saveProfile(profile("other", "Other").copy(credentialAlias = copy.credentialAlias))
+        assertFailsWith<IllegalStateException> { repository.insertDuplicate(source, copy) }
+        assertNull(repository.getProfile(copy.id))
+    }
+
+    @Test fun duplicateSurvivesClosingAndReopeningDatabase() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "duplicate-persistence-${java.util.UUID.randomUUID()}.db"
+        val source = profile("source", "Provider").copy(showTailscaleToggle = true)
+        val copy = source.copy(id = "copy", displayName = "Provider (copy)", credentialAlias = "remote-provider:copy",
+            createdAtEpochMillis = 200, updatedAtEpochMillis = 200)
+        try {
+            val savedDatabase = Room.databaseBuilder(context, ModelProfileDatabase::class.java, name).build()
+            try {
+                val saved = RoomModelProfileRepository(savedDatabase.modelProfileDao())
+                saved.saveProfile(source)
+                saved.selectProfile(source.id)
+                saved.insertDuplicate(source, copy)
+            } finally {
+                savedDatabase.close()
+            }
+            val reopenedDatabase = Room.databaseBuilder(context, ModelProfileDatabase::class.java, name).build()
+            try {
+                val reopened = RoomModelProfileRepository(reopenedDatabase.modelProfileDao())
+                assertEquals(copy, reopened.getProfile(copy.id))
+                assertEquals(source, reopened.getProfile(source.id))
+                assertEquals(source.id, reopened.observeSelectorState().first().selectedRemoteProfileId)
+            } finally {
+                reopenedDatabase.close()
+            }
+        } finally {
+            context.deleteDatabase(name)
+        }
     }
 
     private fun profile(id: String, name: String) = ModelProfile(

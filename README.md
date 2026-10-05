@@ -28,6 +28,7 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 
 - Use the privacy-first local LiteRT-LM provider when its Gemma 4 E2B model is installed, or explicitly opt in to a saved OpenAI-compatible provider.
 - Manage multiple provider profiles securely and import or export their configuration without credentials.
+- Duplicate a saved profile with its own credential copy, or use **Load models** in the editor to search an OpenAI-compatible provider's model IDs. Manual entry remains available; save and provider selection are explicit.
 - Enable **Show Tailscale control on Main** per remote profile for on-demand connect/disconnect requests. Install and sign in to Tailscale first; save the Tailscale Serve URL `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` without `:1234`, with LM Studio **Allow local network access** enabled. Main shows live VPN detection and checks `GET /models` while foregrounded, with up to 30 seconds of connect retries. VPN detection cannot identify Tailscale; models reachability does not verify inference. See [the reusable checker inputs](docs/6.tailscale-integration-goal.md#reusable-models-endpoint-check).
 
 ### 3. Hand off the receipt through OneDrive
@@ -61,6 +62,10 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 4. In the app, open Settings to configure an optional remote provider or connect and verify OneDrive before exporting receipts.
 5. Enable Debug output in Settings to inspect the raw extraction response and each generated handoff JSON on Main.
 
+After code changes, run the app from Android Studio or repeat `:android-app:installDebug`; opening an emulator alone keeps its previously installed app.
+
+To build on another PC while keeping the existing Microsoft sign-in registration, copy the original `%USERPROFILE%\.android\debug.keystore` from the PC that built the registered APK to the same location on the new PC. This file is ignored by Git and must be transferred separately. If it is unavailable, register the new PC's debug certificate in Entra and update the MSAL redirect URI and manifest path as described below.
+
 Local on-device extraction additionally requires `gemma-4-E2B-it.litertlm` in the app's private models directory. The Android LiteRT-LM device path is still being validated; remote providers are optional and require explicit opt-in.
 
 ## Microsoft Graph OneDrive authentication
@@ -73,7 +78,7 @@ OneDrive export uses MSAL with a Microsoft Entra ID **public-client** registrati
 4. Replace `client_id` and `redirect_uri` in `android-app/src/main/res/raw/auth_config_single_account.json`. Update the `BrowserTabActivity` intent-filter path in `android-app/src/main/AndroidManifest.xml` to the same URL-decoded signature hash (not the URL-encoded JSON value). Keep the existing `PersonalMicrosoftAccount` authority and `SINGLE` account mode.
 5. Create the target OneDrive folders before connecting: `Documents/2_Others/Expenses_finance/logs` and `Documents/2_Others/Expenses_finance/receipt_images`. In the app, use **Connect** and then **Verify OneDrive access**.
 
-The debug build validates that its signing certificate matches both configured redirect values. If it fails, register the hash for the keystore that signs the APK, then update the Entra registration, MSAL JSON, and manifest together. Release builds require a redirect registered for the release-signing certificate. See Microsoft's [Android redirect URI setup](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri), [MSAL Android configuration](https://learn.microsoft.com/en-us/entra/msal/android/configure-your-app), and [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference#files-permissions).
+The debug build validates that its signing certificate matches both configured redirect values. A new PC's generated debug key has a different certificate, so copying the original debug keystore preserves the existing registration. If the original key is unavailable, register the new key's hash in Entra, then update the MSAL JSON redirect and manifest path together. Release builds require a redirect registered for the release-signing certificate. See Microsoft's [Android redirect URI setup](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri), [MSAL Android configuration](https://learn.microsoft.com/en-us/entra/msal/android/configure-your-app), and [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference#files-permissions).
 
 ## Verify
 

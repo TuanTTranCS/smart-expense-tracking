@@ -1,6 +1,16 @@
 package com.hugo.smartexpense.app.modelprofile.ui
 
 import androidx.lifecycle.ViewModel
+import com.hugo.smartexpense.app.modelprofile.domain.AvailableProviderModel
+import com.hugo.smartexpense.app.modelprofile.domain.ProviderModelCatalogService
+import com.hugo.smartexpense.app.modelprofile.domain.ProviderModelCatalogResult
+import com.hugo.smartexpense.app.modelprofile.domain.CompatibleProviderModelCatalogService
+import com.hugo.smartexpense.app.modelprofile.domain.DuplicateModelProfileService
+import com.hugo.smartexpense.app.modelprofile.domain.DuplicateModelProfileResult
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import com.hugo.smartexpense.app.connectivity.ModelsEndpointInput
+import com.hugo.smartexpense.app.connectivity.modelsEndpointUrl
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hugo.smartexpense.app.modelprofile.domain.RemoteModelClientFactory
@@ -30,12 +40,24 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+sealed interface ModelCatalogState {
+    data object Idle : ModelCatalogState
+    data class Loading(val endpoint: String) : ModelCatalogState
+    data class Loaded(val models: List<AvailableProviderModel>) : ModelCatalogState
+    data object Empty : ModelCatalogState
+    data class Failed(val reason: String) : ModelCatalogState
+    data object Cancelled : ModelCatalogState
+}
+
 data class ModelProfileEditorState(
     val draft: ModelProfileDraft,
     val originalDraft: ModelProfileDraft,
     val validationErrors: Map<ModelProfileField, String> = emptyMap(),
     val hasStoredCredential: Boolean = false,
     val testStatus: String? = null,
+    val catalogState: ModelCatalogState = ModelCatalogState.Idle,
+    val catalogEndpoint: String? = null,
+    val modelPickerOpen: Boolean = false,
 ) {
     val hasUnsavedChanges: Boolean get() = draft != originalDraft
 }
@@ -89,12 +111,19 @@ class ModelProfilesViewModel(
     },
     tailscaleProbe: ModelProfileTestService = testService,
     vpnStatusSource: com.hugo.smartexpense.app.connectivity.VpnStatusSource = com.hugo.smartexpense.app.connectivity.UnknownVpnStatusSource,
+    private val discoveryDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val catalogService: ProviderModelCatalogService = CompatibleProviderModelCatalogService(),
+    private val duplicateService: DuplicateModelProfileService = DuplicateModelProfileService(repository, credentialStore, idFactory, clock),
 ) : ViewModel() {
     private val tailscaleAccess = TailscaleAccess(repository, resolver, tailscaleController, tailscaleProbe, viewModelScope,
         vpnStatusSource = vpnStatusSource)
     fun requestTailscale(connect: Boolean) = tailscaleAccess.request(connect)
     fun resetTailscaleStatus() = tailscaleAccess.resetStatus()
     fun setConnectivityMonitoring(active: Boolean) = tailscaleAccess.setMonitoring(active)
+    private var discoveryJob: Job? = null
+    private var discoveryToken = 0L
+    private var editorGeneration = 0L
+    private var credentialGeneration = 0L
     private val editor = MutableStateFlow<ModelProfileEditorState?>(null)
     private val busy = MutableStateFlow(false)
     private val message = MutableStateFlow<String?>(null)
@@ -138,7 +167,7 @@ class ModelProfilesViewModel(
 
     init {
         migrator?.let { legacyMigrator ->
-            viewModelScope.launch {
+            launchOperation {
                 runCatching { legacyMigrator.migrate() }
                     .onSuccess { result ->
                         if (result is LegacyMigrationResult.InvalidLegacyData) {
@@ -151,12 +180,20 @@ class ModelProfilesViewModel(
     }
 
     fun addProfile() {
+        if (busy.value) return
+        invalidateDiscovery()
+        editorGeneration++
+        credentialGeneration++
         val draft = ModelProfileDraft()
         editor.value = ModelProfileEditorState(draft, draft)
         message.value = null
     }
 
     fun editProfile(profile: ModelProfile) {
+        if (busy.value) return
+        invalidateDiscovery()
+        editorGeneration++
+        credentialGeneration++
         val draft = ModelProfileDraft(
             id = profile.id,
             displayName = profile.displayName,
@@ -175,6 +212,13 @@ class ModelProfilesViewModel(
     }
 
     fun updateDraft(draft: ModelProfileDraft) {
+        if (busy.value) return
+        val previous = editor.value?.draft ?: return
+        if (draft.baseUrl != previous.baseUrl || draft.apiKey != previous.apiKey || draft.id != previous.id) {
+            if (draft.apiKey != previous.apiKey) credentialGeneration++
+            if (draft.id != previous.id) editorGeneration++
+            invalidateDiscovery()
+        }
         editor.value = editor.value?.copy(
             draft = draft,
             validationErrors = validator.validate(draft).errors,
@@ -182,7 +226,88 @@ class ModelProfilesViewModel(
         )
     }
 
-    fun cancelEdit() { editor.value = null }
+    fun cancelEdit() {
+        if (busy.value) return
+        invalidateDiscovery()
+        editorGeneration++
+        editor.value = null
+    }
+
+    /** Called when Settings is stopped or removed; unsaved edits remain intact. */
+    fun cancelModelDiscovery() = invalidateDiscovery(cancelled = true)
+
+    private fun invalidateDiscovery(cancelled: Boolean = false) {
+        val previousState = editor.value?.catalogState
+        val showCancelled = cancelled && (previousState is ModelCatalogState.Loading || previousState is ModelCatalogState.Cancelled)
+        discoveryToken++
+        discoveryJob?.cancel()
+        discoveryJob = null
+        editor.value = editor.value?.copy(
+            catalogState = if (showCancelled) ModelCatalogState.Cancelled else ModelCatalogState.Idle,
+            catalogEndpoint = null,
+            modelPickerOpen = false,
+        )
+    }
+
+    fun loadModels() {
+        if (busy.value) return
+        val current = editor.value ?: return
+        invalidateDiscovery()
+        val endpoint = modelsEndpointUrl(ModelsEndpointInput(current.draft.baseUrl, current.draft.apiKey))
+        if (endpoint == null || current.draft.apiKey.any { it == '\r' || it == '\n' }) {
+            editor.value = editor.value?.copy(catalogState = ModelCatalogState.Failed("Enter an HTTP(S) base URL without credentials, query or fragment, and a valid API key."))
+            return
+        }
+        val requestToken = discoveryToken
+        val generation = editorGeneration
+        val keyGeneration = credentialGeneration
+        val draft = current.draft
+        editor.value = editor.value?.copy(catalogState = ModelCatalogState.Loading(endpoint), catalogEndpoint = endpoint)
+        discoveryJob = viewModelScope.launch {
+            val result = try {
+                val key = withContext(discoveryDispatcher) {
+                    draft.apiKey.takeIf(String::isNotBlank) ?: draft.id?.let { id ->
+                        repository.getProfile(id)?.let { credentialStore.get(it.credentialAlias) }
+                    }
+                }
+                catalogService.load(draft.baseUrl.trim().trimEnd('/'), key)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                ProviderModelCatalogResult.Failed("Models could not be loaded. Check the endpoint and stored credential, or enter a model ID manually.")
+            }
+            if (requestToken != discoveryToken || generation != editorGeneration || keyGeneration != credentialGeneration) return@launch
+            val state = when (result) {
+                is ProviderModelCatalogResult.Loaded -> {
+                    val models = result.models.distinctBy { it.id }.sortedBy { it.id }
+                    if (models.isEmpty()) ModelCatalogState.Empty else ModelCatalogState.Loaded(models)
+                }
+                is ProviderModelCatalogResult.Failed -> ModelCatalogState.Failed(result.reason)
+            }
+            editor.value = editor.value?.copy(catalogState = state, modelPickerOpen = state is ModelCatalogState.Loaded)
+            discoveryJob = null
+        }
+    }
+
+    fun selectCatalogModel(id: String) {
+        if (busy.value) return
+        val current = editor.value ?: return
+        val models = (current.catalogState as? ModelCatalogState.Loaded)?.models ?: return
+        if (models.none { it.id == id }) return
+        val draft = current.draft.copy(modelId = id)
+        editor.value = current.copy(draft = draft, validationErrors = validator.validate(draft).errors, testStatus = null, modelPickerOpen = false)
+    }
+
+    fun dismissModelPicker() { editor.value = editor.value?.copy(modelPickerOpen = false) }
+    fun openModelPicker() { editor.value = editor.value?.copy(modelPickerOpen = true) }
+
+    fun duplicateProfile(sourceId: String) = launchOperation {
+        if (editor.value != null) return@launchOperation
+        when (val result = duplicateService.duplicate(sourceId)) {
+            is DuplicateModelProfileResult.Success -> message.value = "Duplicated ${result.sourceName} as ${result.copy.displayName}."
+            is DuplicateModelProfileResult.Failure -> message.value = result.message
+        }
+    }
     fun clearMessage() { message.value = null }
 
     fun createProviderConfigExportJson(): String = transferService.createExportJson(
@@ -268,7 +393,7 @@ class ModelProfilesViewModel(
         val profile = ModelProfile(
             id, validation.normalizedDisplayName, validation.normalizedBaseUrl, validation.normalizedModelId,
             currentEditor.draft.inputMode, currentEditor.draft.structuredOutputFormat,
-            currentEditor.draft.id?.let(ModelProfile::credentialAlias) ?: "remote-provider:unsaved-test",
+            currentEditor.draft.id?.let { repository.getProfile(it)?.credentialAlias } ?: "remote-provider:unsaved-test",
             0, 0,
         )
         editor.value = currentEditor.copy(testStatus = "Testing contacts ${validation.normalizedBaseUrl}…")
@@ -284,7 +409,9 @@ class ModelProfilesViewModel(
     fun clearCredential() = launchOperation {
         val currentEditor = editor.value ?: return@launchOperation
         val id = currentEditor.draft.id ?: return@launchOperation
-        credentialStore.remove(ModelProfile.credentialAlias(id))
+        val saved = repository.getProfile(id) ?: return@launchOperation
+        credentialStore.remove(saved.credentialAlias)
+        credentialGeneration++
         editor.value = currentEditor.copy(hasStoredCredential = false, draft = currentEditor.draft.copy(apiKey = ""))
         message.value = "Credential cleared."
     }
@@ -347,10 +474,14 @@ class ModelProfilesViewModel(
     }
 
     private fun launchOperation(block: suspend () -> Unit) {
+        if (busy.value) return
+        invalidateDiscovery()
+        busy.value = true
         viewModelScope.launch {
-            busy.value = true
             try {
                 block()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 message.value = error.safeMessage()
             } finally {

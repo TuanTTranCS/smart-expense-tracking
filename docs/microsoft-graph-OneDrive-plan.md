@@ -42,6 +42,8 @@ The debug build selects its signing keystore in this order:
 
 Optional Gradle properties or environment variables can override the keystore password, key alias, and key password with `smartExpense.debugKeystorePassword` / `SMART_EXPENSE_DEBUG_KEYSTORE_PASSWORD`, `smartExpense.debugKeyAlias` / `SMART_EXPENSE_DEBUG_KEY_ALIAS`, and `smartExpense.debugKeyPassword` / `SMART_EXPENSE_DEBUG_KEY_PASSWORD`. The conventional Android debug values remain the defaults. Do not commit keystores or password overrides.
 
+For a new PC using this Entra registration, copy the original `%USERPROFILE%/.android/debug.keystore` from the registered build machine to the same path on the new PC, or select that copied file with `smartExpense.debugKeystore` / `SMART_EXPENSE_DEBUG_KEYSTORE`. Android-generated debug keystores are machine-local; a newly generated key will have a different certificate and cannot use the existing redirect. If the original key is lost, register the replacement certificate in Entra and update both the JSON redirect and manifest path before building. Keep the private keystore out of source control.
+
 Every debug build runs `:android-app:verifyDebugMsalRedirectSignature` before compilation. It reads the selected keystore certificate and fails if its Base64 SHA-1 hash does not match both the URL-encoded `redirect_uri` in `auth_config_single_account.json` and the unencoded `BrowserTabActivity` path in `AndroidManifest.xml`. This prevents installing an APK that cannot start MSAL authentication.
 
 ## Android Implementation

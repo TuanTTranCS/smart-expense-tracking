@@ -159,6 +159,10 @@ REQ-M-027: Tailscale commands shall require the current effective selected remot
 
 REQ-M-028: A reusable models endpoint checker shall accept caller-provided base URL, optional API key, relative models path (default `models`), and positive connect/read timeouts. It shall send only GET, return model IDs for a successful valid `data` array (including an empty array), and report invalid inputs, invalid responses, HTTP errors and network failures without exposing credentials or response bodies. Redirects shall not forward credentials. Response size shall be bounded to 1 MiB, and coroutine cancellation shall abort the underlying connection. This check shall be independent of Tailscale and profile persistence; the existing inference-based provider verification shall remain separate.
 
+REQ-M-029: Duplicating a saved remote profile shall copy every provider setting and any stored credential under a new independent ID/credential alias, append exactly ` (copy)` to the name, assign fresh timestamps, and preserve the source, selection, and opt-in. A failed copy shall not overwrite an existing profile or expose a key.
+
+REQ-M-030: Explicit model discovery shall use the editor's endpoint/effective credential snapshot, normalize supported OpenAI-compatible model lists, send only discovery requests, cancel stale work, and retain manual model entry on failure or empty lists.
+
 REQ-UI-001: The Android app shall use separate Main and Settings destinations. Main shall contain only receipt-workflow controls plus Settings navigation chrome; Settings shall contain remote-provider opt-in, full profile management and transfer, and receipt-image preprocessing preferences, and shall not contain receipt import, review, or export controls.
 
 REQ-UI-002: Main shall provide compact selection of the local provider or an eligible saved remote profile, show the effective provider for the next extraction, and verify the selected provider without opening its editor. Local verification shall check the installed model file; remote verification shall use only saved metadata and its secure credential alias.
@@ -182,6 +186,8 @@ REQ-UI-010: While the app is resumed and an eligible profile is selected, it sha
 REQ-UI-011: Main shall provide an accessible Retry extraction action once the selected image is loaded, including after extraction failure. Retry shall reuse the exact retained processed image without reopening the picker or loading/preprocessing it again, snapshot the currently effective provider while respecting remote opt-in/local fallback, retain the image preview, and replace the current reviews and transient debug/export previews. Retry shall be disabled during extraction, export, or provider configuration work. It shall not upload anything or alter persisted export records; an image-load failure shall require choosing an image again.
 
 REQ-UI-012: Main and Settings shall reserve Android's safe drawing insets outside their scrollable viewports so controls remain fully visible and tappable above gesture and three-button navigation bars. Layout shall respond to status bars, display cutouts, side navigation bars and keyboard inset changes, consuming shared insets once while preserving existing content margins.
+
+REQ-UI-013: Settings shall expose accessible Duplicate profile and Load models actions, a searchable model picker, and separate loading/empty/error/cancelled states. Selecting a catalog item shall edit only the draft until explicitly saved.
 
 ### Handoff File
 
@@ -484,6 +490,10 @@ AC-035: Main displays VPN detected, no VPN detected for this app, or VPN detecti
 AC-036: After selecting and loading an image, Retry extraction sends that same processed image again with the provider selected at retry activation. Repeated taps while extracting or exporting start no extra request; changing provider while retry runs does not change its snapshot. A provider failure retains the image, manual-entry fallback, and retry action. Successful retry replaces prior edits/results/debug previews with the new receipt reviews, preserves the selected image and source URI, and makes no export request. Choosing another image makes subsequent retries use that image.
 
 AC-037: On Main, the receipt selection, extraction retry and export controls can be scrolled completely above Android navigation UI, including with Debug output enabled. Settings content uses the same safe viewport. Insets update when the keyboard or navigation configuration changes, and a nested inset-aware child does not apply the same system spacing twice.
+
+AC-038: Duplicate a profile containing a stored key and a Tailscale flag, restart, and observe identical provider settings with the exact copy name and independent identity. Editing, deleting, or clearing either credential affects only that profile; no remote request/command or selection change occurs.
+
+AC-039: Load models for a new and an existing profile, choose an ID, save, and verify the saved model is used for the next extraction. Empty/error responses retain manual input; changing endpoint/credential, closing the editor, or leaving Settings prevents stale results from replacing current state. No receipt data or inference is sent by discovery.
 
 ## System-bar layout implementation verification
 

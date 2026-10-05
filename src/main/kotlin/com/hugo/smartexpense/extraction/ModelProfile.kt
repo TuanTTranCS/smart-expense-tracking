@@ -87,6 +87,13 @@ interface ModelProfileRepository {
     suspend fun getProfile(id: String): ModelProfile?
     suspend fun saveProfile(profile: ModelProfile)
     suspend fun saveProfiles(profiles: List<ModelProfile>)
+    /** Atomically verify the source snapshot and insert without replacing any existing row. */
+    suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) {
+        throw UnsupportedOperationException("Duplicate insertion is unavailable.")
+    }
+    suspend fun credentialAliasInUse(alias: String): Boolean {
+        throw UnsupportedOperationException("Credential reference lookup is unavailable.")
+    }
     suspend fun selectProfile(id: String?)
     suspend fun setRemoteProvidersEnabled(enabled: Boolean)
     suspend fun deleteProfile(id: String)
@@ -95,4 +102,13 @@ interface ModelProfileRepository {
 interface WritableApiKeyStore : ApiKeyStore {
     fun put(alias: String, value: String)
     fun remove(alias: String)
+    /** A failed write may have reached storage and must be compensated by the caller. */
+    fun putDurablyIfAbsent(alias: String, value: String): DurableCredentialWriteResult {
+        throw UnsupportedOperationException("Durable credential writes are unavailable.")
+    }
+    fun removeDurably(alias: String): Boolean {
+        throw UnsupportedOperationException("Durable credential removal is unavailable.")
+    }
 }
+
+enum class DurableCredentialWriteResult { STORED, ALREADY_EXISTS, FAILED }
