@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $validDir = Join-Path $repoRoot 'fixtures/handoff/valid'
 $invalidDir = Join-Path $repoRoot 'fixtures/handoff/invalid'
+Import-Module (Join-Path $PSScriptRoot 'SmartExpense.Excel.psm1') -Force -DisableNameChecking
 
 function Assert-Condition {
     param(
@@ -30,7 +31,13 @@ function Test-HandoffPayload {
         [object]$Payload
     )
 
-    Assert-Condition ($Payload.schemaVersion -in 1, 2) 'schemaVersion must be 1 or 2.'
+    Assert-Condition ($Payload.schemaVersion -in 1, 2, 3) 'schemaVersion must be 1, 2 or 3.'
+    if ($Payload.schemaVersion -eq 3) {
+        $created = [DateTimeOffset]::Parse([string]$Payload.createdAt)
+        $short = ([Guid]$Payload.expenseId).ToString('N').Substring(0,8)
+        $validation = Test-HermesHandoff $Payload ("expense_{0}_{1}.json" -f $created.ToString('yyyyMMdd_HHmmss'), $short) $repoRoot
+        Assert-Condition $validation.Valid $validation.Message
+    }
 
     Test-RequiredString $Payload.expenseId 'expenseId'
     Test-RequiredString $Payload.createdAt 'createdAt'

@@ -62,7 +62,7 @@ class SmartExpenseAppContentTest {
 
     @Test fun sideInsetsAreConsumedOnceBeforeScrollableContent() {
         showWorkflow(repeatInsets = true) { WindowInsets(left = 32.dp, top = 24.dp, right = 48.dp) }
-        val button = compose.onNode(hasText("Choose receipt") and hasClickAction())
+        val button = compose.onNode(hasText("Choose images") and hasClickAction())
         button.performScrollTo().assertIsDisplayed()
         val bounds = button.getUnclippedBoundsInRoot()
         val window = compose.onNodeWithTag("window").getUnclippedBoundsInRoot()
@@ -85,6 +85,8 @@ class SmartExpenseAppContentTest {
                                 workflowState = ReceiptWorkflowUiState(reviews = listOf(
                                     ReceiptReviewState(
                                         merchantName = "Corner Store",
+                                        receiptDate = "2026-10-07",
+                                        totalAmount = "65",
                                         rawModelOutput = "Long extraction response\n".repeat(30),
                                     ),
                                 )),

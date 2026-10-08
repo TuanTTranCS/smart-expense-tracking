@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 
 $script:MonthlyPattern = '^\d{4}-\d{2}$'
 $script:HandoffPattern = '^expense_\d{8}_\d{6}_[0-9a-f]{8}\.json$'
+$script:BatchPattern = '^expense_batch_\d{8}_\d{6}_[0-9a-f]{8}\.json$'
 $script:OneDriveExpenseRoot = 'Documents/2_Others/Expenses_finance'
 $script:Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -25,6 +26,86 @@ function Get-HermesOrdinalFiles {
 function Get-HermesFullPath {
     param([Parameter(Mandatory)][string]$Path)
     return [IO.Path]::GetFullPath($Path)
+}
+
+# Compare JSON by value, independent of whitespace and object property order.
+function ConvertTo-HermesCanonicalValue {
+    param([AllowNull()][object]$Value)
+    if($Value -is [Collections.IDictionary]){
+        $ordered=[ordered]@{}
+        foreach($key in @($Value.Keys | Sort-Object -CaseSensitive)){$ordered[$key]=ConvertTo-HermesCanonicalValue $Value[$key]}
+        return $ordered
+    }
+    if($Value -is [array]){return ,@($Value | ForEach-Object {ConvertTo-HermesCanonicalValue $_})}
+    return $Value
+}
+
+function Get-HermesCanonicalJson {
+    param([Parameter(Mandatory)][string]$Json)
+    $value=ConvertFrom-Json -InputObject $Json -AsHashtable -DateKind String -NoEnumerate -ErrorAction Stop
+    return ConvertTo-Json -InputObject (ConvertTo-HermesCanonicalValue $value) -Depth 100 -Compress
+}
+
+function Expand-HermesBatch {
+    param([Parameter(Mandatory)]$File,[Parameter(Mandatory)][string]$Inbox,[Parameter(Mandatory)][string]$OneDriveRoot,[switch]$DryRun)
+    $ErrorActionPreference='Stop'
+    $members=[Collections.Generic.List[object]]::new()
+    try{
+        if($File.Name -cnotmatch $script:BatchPattern){throw 'invalid_batch_filename'}
+        $stamp=[datetime]::MinValue
+        if(-not [datetime]::TryParseExact($File.Name.Substring(14,15),'yyyyMMdd_HHmmss',$script:Invariant,[Globalization.DateTimeStyles]::None,[ref]$stamp)){throw 'invalid_batch_filename'}
+        $raw=Get-Content -Raw -LiteralPath $File.FullName -ErrorAction Stop
+        try{$payload=ConvertFrom-Json -InputObject $raw -DateKind String -NoEnumerate -ErrorAction Stop}catch{throw 'invalid_batch_json'}
+        if($payload -isnot [array] -or $payload.Count -eq 0){throw 'invalid_batch_array'}
+        $ids=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach($entry in $payload){
+            if($entry -isnot [pscustomobject]){throw 'invalid_batch_member'}
+            $id=[guid]::Empty;$created=[datetimeoffset]::MinValue
+            if(-not $entry.PSObject.Properties['expenseId'] -or -not [guid]::TryParse([string]$entry.expenseId,[ref]$id)){throw 'invalid_batch_expense_id'}
+            if(-not $ids.Add($id.ToString())){throw 'duplicate_batch_expense_id'}
+            if(-not $entry.PSObject.Properties['createdAt'] -or -not [datetimeoffset]::TryParse([string]$entry.createdAt,$script:Invariant,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$created)){throw 'invalid_batch_created_at'}
+            $name='expense_{0}_{1}.json' -f $created.ToString('yyyyMMdd_HHmmss',$script:Invariant),$id.ToString('N').Substring(0,8)
+            if(-not $names.Add($name)){throw 'duplicate_batch_member_filename'}
+            $validation=Test-HermesHandoff $entry $name $OneDriveRoot
+            if(-not $validation.Valid){throw ('invalid_batch_member_'+$validation.ReasonCode)}
+            $json=ConvertTo-Json -InputObject $entry -Depth 100 -Compress
+            $members.Add([pscustomobject]@{Name=$name;FullName=(Join-Path $Inbox $name);Payload=$entry;Json=$json;Archived=$false})
+        }
+        # Preflight every collision before publishing even the first member.
+        foreach($member in $members){
+            foreach($folder in @('', 'receipt_jsons_done','receipt_jsons_review','receipt_jsons_error')){
+                $path=if($folder){Join-Path (Join-Path $Inbox $folder) $member.Name}else{$member.FullName}
+                if(Test-Path -LiteralPath $path){
+                    if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw 'batch_member_conflict'}
+                    try{$same=(Get-HermesCanonicalJson (Get-Content -Raw -LiteralPath $path)) -ceq (Get-HermesCanonicalJson $member.Json)}catch{throw 'batch_member_conflict'}
+                    if(-not $same){throw 'batch_member_conflict'}
+                    if($folder){$member.Archived=$true}
+                }
+            }
+        }
+        $archive=Join-Path (Join-Path $Inbox 'receipt_batches_expanded') $File.Name
+        if((Test-Path -LiteralPath $archive) -and (Get-HermesFileSha256 $File.FullName) -cne (Get-HermesFileSha256 $archive)){throw 'batch_archive_conflict'}
+        if(-not $DryRun){
+            foreach($member in $members){
+                if($member.Archived -or (Test-Path -LiteralPath $member.FullName)){continue}
+                $temporary=Join-Path $Inbox ('.batch-member.'+[guid]::NewGuid().ToString('N')+'.tmp')
+                try{
+                    $bytes=[Text.UTF8Encoding]::new($false).GetBytes($member.Json)
+                    $stream=[IO.FileStream]::new($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+                    try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+                    # Never overwrite: a crash leaves already published members replayable.
+                    [IO.File]::Move($temporary,$member.FullName)
+                }finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}}
+            }
+            Move-HermesHandoff $File.FullName (Join-Path $Inbox 'receipt_batches_expanded') -StateProvesCompletion | Out-Null
+        }
+        return [pscustomobject]@{Valid=$true;ReasonCode='batch_expanded';Members=@($members)}
+    }catch{
+        $reason=$_.Exception.Message
+        if($reason -notmatch '^(invalid_batch_|duplicate_batch_|batch_member_conflict$|batch_archive_conflict$)'){$reason='batch_expansion_failed'}
+        return [pscustomobject]@{Valid=$false;ReasonCode=$reason;Members=@($members)}
+    }
 }
 
 function Test-HermesPathUnderRoot {
@@ -133,16 +214,19 @@ function Test-HermesJsonNumber {
     return (Test-HermesJsonInteger $Value) -or $Value -is [decimal] -or $Value -is [double] -or $Value -is [single]
 }
 
-function Test-HermesVersion2Handoff {
+function Test-HermesHandoff {
     param([Parameter(Mandatory)][object]$Payload,[Parameter(Mandatory)][string]$FileName,[Parameter(Mandatory)][string]$OneDriveRoot)
     $failure = { param([string]$Code,[string]$Message) [pscustomobject]@{ Valid=$false; ReasonCode=$Code; Message=$Message } }
     try {
-        if (-not (Test-HermesHandoffFileName $FileName)) { return & $failure 'invalid_filename' 'Filename is not a final Version 2 handoff name.' }
-        if($null -eq $Payload){return & $failure 'unsupported_schema' 'Only schemaVersion 2 is supported by the production processor.'}
+        if (-not (Test-HermesHandoffFileName $FileName)) { return & $failure 'invalid_filename' 'Filename is not a final handoff name.' }
+        if($null -eq $Payload){return & $failure 'unsupported_schema' 'Only schemaVersion 2 and typed schemaVersion 3 are supported.'}
         $schemaProperty=$Payload.PSObject.Properties['schemaVersion']
-        if($null -eq $schemaProperty -or -not (Test-HermesJsonInteger $schemaProperty.Value)){return & $failure 'invalid_schema_type' 'schemaVersion must be the integer 2.'}
-        if([int64]$schemaProperty.Value -ne 2){return & $failure 'unsupported_schema' 'Only schemaVersion 2 is supported by the production processor.'}
-        foreach($name in @('expenseId','createdAt','sourceDeviceId','receiptDate','merchantName','currency','extractionStatus','receiptImageRelativePath')){
+        if($null -eq $schemaProperty -or -not (Test-HermesJsonInteger $schemaProperty.Value)){return & $failure 'invalid_schema_type' 'schemaVersion must be the integer 2 or 3.'}
+        if([int64]$schemaProperty.Value -notin @(2,3)){return & $failure 'unsupported_schema' 'Only schemaVersion 2 and typed schemaVersion 3 are supported.'}
+        $typed = [int64]$schemaProperty.Value -eq 3
+        $required = @('expenseId','createdAt','sourceDeviceId','receiptDate','merchantName','currency','extractionStatus')
+        if($typed){$required += 'sourceDeviceName'}else{$required += 'receiptImageRelativePath'}
+        foreach($name in $required){
             $property=$Payload.PSObject.Properties[$name]
             if($null -eq $property -or $property.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($property.Value)){return & $failure 'missing_required_field' "$name must be a non-blank string."}
         }
@@ -168,12 +252,34 @@ function Test-HermesVersion2Handoff {
         if($null -ne $rawProperty -and $null -ne $rawProperty.Value -and $rawProperty.Value -isnot [string] -and $rawProperty.Value -isnot [pscustomobject] -and $rawProperty.Value -isnot [Collections.IDictionary]){return & $failure 'invalid_optional_field' 'rawModelOutput must be a string, object, or null.'}
         if([string]$Payload.currency -cnotmatch '^[A-Z]{3}$'){return & $failure 'invalid_currency' 'currency must be three uppercase letters.'}
         if(@('confirmed','manual') -notcontains [string]$Payload.extractionStatus){return & $failure 'invalid_status' 'extractionStatus must be confirmed or manual.'}
+        $relative=$null;$local=$null
+        if($typed){
+            $source=$Payload.PSObject.Properties['inputSource'];$hasImage=$Payload.PSObject.Properties['hasReceiptImage'];$imagePath=$Payload.PSObject.Properties['receiptImageRelativePath']
+            if($null -eq $source -or $source.Value -isnot [string] -or $source.Value -cne 'typed' -or $null -eq $hasImage -or $hasImage.Value -isnot [bool] -or $hasImage.Value){return & $failure 'invalid_input_source' 'Version 3 requires inputSource typed and boolean hasReceiptImage false.'}
+            if($null -eq $imagePath -or $null -ne $imagePath.Value){return & $failure 'invalid_image_path' 'Version 3 requires an explicit null receiptImageRelativePath.'}
+            foreach($name in @('receiptImageUri','originalImageFileName','receiptPhotoLink')){
+                $property=$Payload.PSObject.Properties[$name]
+                if($null -ne $property -and $null -ne $property.Value){return & $failure 'invalid_image_path' "Version 3 $name must be absent or null."}
+            }
+            if($Payload.extractionStatus -cne 'manual'){return & $failure 'invalid_status' 'Typed-origin expenses must use manual status.'}
+        }else{
+        $source=$Payload.PSObject.Properties['inputSource'];$hasImage=$Payload.PSObject.Properties['hasReceiptImage']
+        if(($null -ne $source -and $source.Value -cne 'image') -or ($null -ne $hasImage -and ($hasImage.Value -isnot [bool] -or -not $hasImage.Value))){return & $failure 'invalid_input_source' 'Version 2 must be image-backed.'}
         $relative=[string]$Payload.receiptImageRelativePath;$expected=Get-HermesExpectedImagePath $created $id
         if($relative -cne $expected -or -not (Test-HermesSafeRelativePath $relative) -or [IO.Path]::IsPathRooted($relative)){return & $failure 'invalid_image_path' 'receiptImageRelativePath does not match the deterministic safe path.'}
         $root=Get-HermesFullPath $OneDriveRoot;$local=Get-HermesFullPath (Join-Path $root ($relative -replace '/',[IO.Path]::DirectorySeparatorChar))
         if(-not (Test-HermesPathUnderRoot $local $root) -or -not (Test-Path -LiteralPath $local -PathType Leaf) -or [IO.Path]::GetExtension($local) -cne '.jpg'){return & $failure 'missing_image' 'Referenced normalized JPEG is unavailable under the OneDrive root.'}
-        return [pscustomobject]@{Valid=$true;ReasonCode='valid';Message='Valid Version 2 handoff.';ExpenseId=$id.ToString();CreatedAt=$created;ReceiptDate=$receiptDate;ReceiptMonth=$receiptDate.ToString('yyyy-MM',$script:Invariant);Amount=(ConvertTo-HermesMoney $amount);MerchantName=([string]$Payload.merchantName).Trim();Currency=([string]$Payload.currency);ExtractionStatus=([string]$Payload.extractionStatus);ReceiptImageRelativePath=$relative;ImagePath=$local;Description=(Format-HermesMerchantDescription ([string]$Payload.merchantName) ([string]$Payload.receiptDate))}
+        }
+        return [pscustomobject]@{Valid=$true;ReasonCode='valid';Message="Valid Version $($schemaProperty.Value) handoff.";HasReceiptImage=(-not $typed);ExpenseId=$id.ToString();CreatedAt=$created;ReceiptDate=$receiptDate;ReceiptMonth=$receiptDate.ToString('yyyy-MM',$script:Invariant);Amount=(ConvertTo-HermesMoney $amount);MerchantName=([string]$Payload.merchantName).Trim();Currency=([string]$Payload.currency);ExtractionStatus=([string]$Payload.extractionStatus);ReceiptImageRelativePath=$relative;ImagePath=$local;Description=(Format-HermesMerchantDescription ([string]$Payload.merchantName) ([string]$Payload.receiptDate))}
     } catch { return & $failure 'validation_exception' $_.Exception.Message }
+}
+
+# Preserve the strict Version 2 entry point for existing callers.
+function Test-HermesVersion2Handoff {
+    param([Parameter(Mandatory)][object]$Payload,[Parameter(Mandatory)][string]$FileName,[Parameter(Mandatory)][string]$OneDriveRoot)
+    $schema=$Payload.PSObject.Properties['schemaVersion']
+    if($null -ne $schema -and (Test-HermesJsonInteger $schema.Value) -and $schema.Value -ne 2){return [pscustomobject]@{Valid=$false;ReasonCode='unsupported_schema';Message='This entry point requires Version 2.'}}
+    return Test-HermesHandoff $Payload $FileName $OneDriveRoot
 }
 
 function Find-HermesSafeTransactionRow {
@@ -355,8 +461,17 @@ function Get-HermesSummaryModel {
     if($monthRows.Count -eq 0 -or [string]$summary.Cells.Item($row,1).Value2 -ne 'Accumulated'){throw 'summary_accumulated_row_missing'}
     $detailStart=$detailHeaderRow+1;$detailEnd=$detailStart + ($monthRows.Count * 89) - 1
     if([string]$summary.Cells.Item($detailEnd,1).Value2 -ne $monthRows[-1].Month){throw 'summary_detail_block_unexpected'}
-    $coverageStatusRow=$detailHeaderRow-2
-    if([string]$summary.Cells.Item($coverageStatusRow,6).Value2 -notin @('OK','Review')){throw 'summary_coverage_status_missing'}
+    # Month insertion moves the coverage block. Locate its formula and numeric
+    # count pair, rather than accepting an obsolete duplicated status cell.
+    $coverageStatusRow=$null
+    for($candidateRow=$row+1;$candidateRow -lt $detailHeaderRow;$candidateRow++){
+        $formula=[string]$summary.Cells.Item($candidateRow,6).Formula
+        if($formula -match '^=IF\(F(?<detail>\d+)=F(?<source>\d+),"OK","Review"\)$'){
+            $detailCountRow=[int]$Matches.detail;$sourceCountRow=[int]$Matches.source
+            if([string]$summary.Cells.Item($detailCountRow,6).Formula -like '=SUMPRODUCT*' -and [string]$summary.Cells.Item($sourceCountRow,6).Formula -like '=SUMPRODUCT*'){$coverageStatusRow=$candidateRow;break}
+        }
+    }
+    if($null -eq $coverageStatusRow -or [string]$summary.Cells.Item($coverageStatusRow,6).Value2 -notin @('OK','Review')){throw 'summary_coverage_status_missing'}
     return [pscustomobject]@{ Sheet=$summary; MonthRows=@($monthRows); AccumulatedRow=$row; DetailStart=$detailStart; DetailEnd=$detailEnd; CoverageStatusRow=$coverageStatusRow }
 }
 
@@ -390,9 +505,10 @@ function Add-HermesSummaryMonth {
     for($c=2;$c -le 5;$c++){$letter=[char](64+$c);$summary.Cells.Item($newAccum,$c).Formula='=SUM({0}$4:{0}${1})' -f $letter,$monthLast}
     $summary.Cells.Item($newAccum,6).Formula='=IF($E{0}=0,0,B{0}/$E{0})' -f $newAccum;$summary.Cells.Item($newAccum,7).Formula='=IF($E{0}=0,0,C{0}/$E{0})' -f $newAccum;$summary.Cells.Item($newAccum,8).Formula='=IF($E{0}=0,0,D{0}/$E{0})' -f $newAccum
     $summary.Cells.Item(1,1).Value2="Food Expense Summary ($($allMonths[0]) to $Month)"
-    $summary.Cells.Item(15,6).Formula='=SUMPRODUCT(--(LEN($C${0}:$C${1})>0),--(LEN($D${0}:$D${1})>0))' -f $newDetailStart,$newDetailEnd
-    $parts=@($allMonths | ForEach-Object { "SUMPRODUCT(--(LEN('$_'!F12:F100)>0),--(LEN('$_'!G12:G100)>0))" });$summary.Cells.Item(16,6).Formula='='+($parts -join '+');$summary.Cells.Item(17,6).Formula='=IF(F15=F16,"OK","Review")'
-    $null=$model.MonthRows=@($model.MonthRows)+[pscustomobject]@{Month=$Month;Row=$newMonthRow};$null=$model.AccumulatedRow=$newAccum;$null=$model.DetailStart=$newDetailStart;$null=$model.DetailEnd=$newDetailEnd;$null=$model.CoverageStatusRow=17
+    $coverageRow=$model.CoverageStatusRow+1;$detailCountRow=$coverageRow-2;$sourceCountRow=$coverageRow-1
+    $summary.Cells.Item($detailCountRow,6).Formula='=SUMPRODUCT(--(LEN($C${0}:$C${1})>0),--(LEN($D${0}:$D${1})>0))' -f $newDetailStart,$newDetailEnd
+    $parts=@($allMonths | ForEach-Object { "SUMPRODUCT(--(LEN('$_'!F12:F100)>0),--(LEN('$_'!G12:G100)>0))" });$summary.Cells.Item($sourceCountRow,6).Formula='='+($parts -join '+');$summary.Cells.Item($coverageRow,6).Formula='=IF(F{0}=F{1},"OK","Review")' -f $detailCountRow,$sourceCountRow
+    $null=$model.MonthRows=@($model.MonthRows)+[pscustomobject]@{Month=$Month;Row=$newMonthRow};$null=$model.AccumulatedRow=$newAccum;$null=$model.DetailStart=$newDetailStart;$null=$model.DetailEnd=$newDetailEnd;$null=$model.CoverageStatusRow=$coverageRow
     return $model
 }
 
@@ -439,7 +555,13 @@ function Invoke-HermesExcelWorkbookUpdate {
                 $amountValue=[double]$change.Item.Validation.Amount;$descriptionValue=[string]$change.Item.Validation.Description
                 try{$cellF=$sheet.Range(('F' + [string]$row));$cellF.Value2=$amountValue}catch{throw "write_amount_failed: $($_.Exception.Message)"}
                 try{$cellG=$sheet.Range(('G' + [string]$row));$cellG.Formula=([char]39)+$descriptionValue}catch{throw "write_description_failed: $($_.Exception.Message)"}
-                $address=$sheet.Range(('H' + [string]$row));$target=(Get-HermesWorkbookHyperlinkPath $change.Item.Validation.ReceiptImageRelativePath);$sheet.Hyperlinks.Add($address,$target,'','',$change.Item.Validation.ReceiptImageRelativePath)|Out-Null
+                $address=$sheet.Range(('H' + [string]$row))
+                $address.Hyperlinks.Delete() | Out-Null
+                $address.ClearContents() | Out-Null
+                if($change.Item.Validation.HasReceiptImage){
+                    $target=Get-HermesWorkbookHyperlinkPath $change.Item.Validation.ReceiptImageRelativePath
+                    $sheet.Hyperlinks.Add($address,$target,'','',$change.Item.Validation.ReceiptImageRelativePath)|Out-Null
+                }
                 $warningRows=@($change.Warnings | ForEach-Object Row);$reason=if($warningRows.Count -gt 0){'inserted_with_structural_warning'}else{'inserted'};$message=if($warningRows.Count -gt 0){'Expense inserted; partially populated transaction rows were skipped: '+($warningRows -join ', ')}else{'Expense inserted into the workbook.'}
                 $resultItems.Add([pscustomobject]@{FileName=$change.Item.FileName;ExpenseId=$change.Item.Validation.ExpenseId;Outcome='inserted';ReasonCode=$reason;Message=$message;Sheet=$sheet.Name;Row=$row;Candidates=@()});$touched=$true
             }
@@ -492,10 +614,41 @@ function Invoke-HermesProcessor {
         if($null -eq $lock){$counts.deferred=1;$items.Add((New-HermesResultItem $null $null 'deferred' 'processor_locked' 'Another processor run is active.' $null $null));$result=[pscustomobject]@{schemaVersion=1;startedAt=$started.ToString('o');completedAt=[datetimeoffset]::UtcNow.ToString('o');outcome='deferred';counts=[pscustomobject]$counts;items=@($items)};if(-not $DryRun){$logDirectory=Split-Path -Parent $LogPath;New-Item -ItemType Directory -Force -Path $logDirectory|Out-Null;($result|ConvertTo-Json -Depth 12 -Compress)|Add-Content -LiteralPath $LogPath -Encoding utf8};return $result}
         $root=Get-HermesFullPath $OneDriveRoot;$inbox=Get-HermesFullPath (Join-Path $root $InboxRelativePath);$workbook=Get-HermesFullPath (Join-Path $root $WorkbookRelativePath)
         if(-not (Test-Path -LiteralPath $inbox -PathType Container)){throw "Inbox does not exist: $inbox"}
-        $state=Read-HermesState $StatePath;$files=@(Get-HermesOrdinalFiles $inbox);$counts.discovered=$files.Count;$eligible=[Collections.Generic.List[object]]::new()
+        $state=Read-HermesState $StatePath
+        $blocked=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $virtual=@{}
+        $batchFiles=@(Get-ChildItem -LiteralPath $inbox -File | Where-Object {$_.Name -cmatch '^expense_batch_.*\.json$'} | Sort-Object Name -CaseSensitive)
+        foreach($batchFile in $batchFiles){
+            $expansion=Expand-HermesBatch $batchFile $inbox $root -DryRun:$DryRun
+            if(-not $expansion.Valid){
+                foreach($member in $expansion.Members){[void]$blocked.Add($member.Name)}
+                $counts.discovered++
+                $isInvalid=$expansion.ReasonCode -match '^(invalid_batch_|duplicate_batch_)'
+                if($isInvalid){
+                    $message='Batch validation failed; no members were published.'
+                    if(-not $DryRun){
+                        try{Move-HermesHandoffWithSidecar -SourcePath $batchFile.FullName -DestinationFolder (Join-Path $inbox 'receipt_jsons_error') -Outcome 'error' -ReasonCode $expansion.ReasonCode -Message $message -ArchiveMover $ArchiveMover -SidecarWriter $SidecarWriter | Out-Null}
+                        catch{$counts.failed++;$items.Add((New-HermesResultItem $batchFile.Name $null 'failed' 'archive_failed' 'Invalid batch could not be quarantined; retain the batch and retry.' $null $null));continue}
+                    }
+                    $counts.invalidError++;$items.Add((New-HermesResultItem $batchFile.Name $null 'error' $expansion.ReasonCode $message $null $null))
+                }
+                else{$counts.failed++;$items.Add((New-HermesResultItem $batchFile.Name $null 'failed' $expansion.ReasonCode 'Batch expansion is incomplete; retain the batch and retry.' $null $null))}
+                # No member from an incomplete or invalid list can reach Excel this run.
+                continue
+            }
+            if($DryRun){foreach($member in $expansion.Members){$virtual[$member.Name]=$member}}
+        }
+        $files=@(Get-HermesOrdinalFiles $inbox | Where-Object {-not $blocked.Contains($_.Name)})
+        if($DryRun){
+            $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach($file in $files){[void]$seen.Add($file.Name)}
+            foreach($member in $virtual.Values){if(-not $blocked.Contains($member.Name) -and $seen.Add($member.Name)){$files+= $member}}
+            $files=@($files | Sort-Object Name -CaseSensitive)
+        }
+        $counts.discovered+=$files.Count;$eligible=[Collections.Generic.List[object]]::new()
         foreach($file in $files){
-            try{$payload=Get-Content -Raw -LiteralPath $file.FullName -ErrorAction Stop|ConvertFrom-Json -DateKind String}catch{$item=New-HermesResultItem $file.Name $null 'error' 'invalid_json' $_.Exception.Message $null $null;$items.Add($item);$counts.invalidError++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_error';Move-HermesHandoff $file.FullName $dest|Out-Null;Write-HermesSidecar $dest $file.Name 'error' 'invalid_json' $item.message|Out-Null};continue}
-            $valid=Test-HermesVersion2Handoff $payload $file.Name $root
+            try{if($DryRun -and $virtual.ContainsKey($file.Name)){$payload=$virtual[$file.Name].Payload}else{$payload=Get-Content -Raw -LiteralPath $file.FullName -ErrorAction Stop|ConvertFrom-Json -DateKind String}}catch{$item=New-HermesResultItem $file.Name $null 'error' 'invalid_json' $_.Exception.Message $null $null;$items.Add($item);$counts.invalidError++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_error';Move-HermesHandoff $file.FullName $dest|Out-Null;Write-HermesSidecar $dest $file.Name 'error' 'invalid_json' $item.message|Out-Null};continue}
+            $valid=Test-HermesHandoff $payload $file.Name $root
             if(-not $valid.Valid){$item=New-HermesResultItem $file.Name $null 'error' $valid.ReasonCode $valid.Message $null $null;$items.Add($item);$counts.invalidError++;if(-not $DryRun){$dest=Join-Path $inbox 'receipt_jsons_error';Move-HermesHandoff $file.FullName $dest|Out-Null;Write-HermesSidecar $dest $file.Name 'error' $valid.ReasonCode $valid.Message|Out-Null};continue}
             $orderDetails[$file.Name]=[pscustomobject]@{merchant=$valid.MerchantName;amount=$valid.Amount;receiptDate=$valid.ReceiptDate;currency=$valid.Currency}
             if([string]$payload.currency -cne 'CAD'){

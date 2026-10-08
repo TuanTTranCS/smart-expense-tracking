@@ -1,7 +1,7 @@
 package com.hugo.smartexpense.extraction
 
 internal object FlatJsonObjectParser {
-    fun parse(json: String): Map<String, String>? {
+    fun parse(json: String, preserveStringQuotes: Boolean = false): Map<String, String>? {
         val trimmed = json.trim()
         if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
             return null
@@ -12,7 +12,7 @@ internal object FlatJsonObjectParser {
         var index = 0
 
         while (index < body.length) {
-            index = body.skipWhitespaceAndCommas(index)
+            index = index.skipWhitespace(body)
             if (index >= body.length) break
 
             val key = body.readString(index) ?: return null
@@ -22,20 +22,62 @@ internal object FlatJsonObjectParser {
             index = index.skipWhitespace(body)
 
             val value = if (index < body.length && body[index] == '"') {
+                val start = index
                 val parsed = body.readString(index) ?: return null
                 index = parsed.nextIndex
-                parsed.value
+                if (preserveStringQuotes) body.substring(start, index) else parsed.value
             } else {
                 val start = index
-                while (index < body.length && body[index] != ',') index++
-                body.substring(start, index).trim()
+                var depth = 0
+                var quoted = false
+                var escaped = false
+                while (index < body.length) {
+                    val character = body[index]
+                    if (quoted) {
+                        if (escaped) escaped = false
+                        else if (character == '\\') escaped = true
+                        else if (character == '"') quoted = false
+                    } else when (character) {
+                        '"' -> quoted = true
+                        '[', '{' -> depth++
+                        ']', '}' -> depth--
+                        ',' -> if (depth == 0) break
+                    }
+                    index++
+                }
+                if (depth != 0 || quoted) return null
+                body.substring(start, index).trim().takeIf { it.isNotEmpty() } ?: return null
             }
 
+            if (result.containsKey(key.value)) return null
             result[key.value] = value
-            index = body.skipWhitespaceAndCommas(index)
+            index = index.skipWhitespace(body)
+            if (index == body.length) break
+            if (body[index] != ',') return null
+            index = (index + 1).skipWhitespace(body)
+            if (index == body.length) return null
         }
 
         return result
+    }
+
+    fun stringArray(raw: String?): List<String>? {
+        if (raw == null) return emptyList()
+        val value = raw.trim()
+        if (!value.startsWith('[') || !value.endsWith(']')) return null
+        var index = 1
+        val values = mutableListOf<String>()
+        while (true) {
+            index = index.skipWhitespace(value)
+            if (index == value.lastIndex) return values
+            val parsed = value.readString(index) ?: return null
+            values += parsed.value
+            index = parsed.nextIndex.skipWhitespace(value)
+            if (index == value.lastIndex) return values
+            if (value[index] != ',') return null
+            index = (index + 1).skipWhitespace(value)
+            if (index == value.lastIndex) return null
+        }
     }
 
     private fun String.readString(start: Int): ParsedString? {
@@ -57,21 +99,21 @@ internal object FlatJsonObjectParser {
                             'n' -> '\n'
                             'r' -> '\r'
                             't' -> '\t'
+                            'u' -> {
+                                if (index + 4 >= length) return null
+                                val code = substring(index + 1, index + 5).toIntOrNull(16) ?: return null
+                                index += 4
+                                code.toChar()
+                            }
                             else -> return null
                         }
                     )
                 }
-                else -> builder.append(char)
+                else -> { if (char.code < 32) return null; builder.append(char) }
             }
             index++
         }
         return null
-    }
-
-    private fun String.skipWhitespaceAndCommas(start: Int): Int {
-        var index = start
-        while (index < length && (this[index].isWhitespace() || this[index] == ',')) index++
-        return index
     }
 
     private fun Int.skipWhitespace(input: String): Int {

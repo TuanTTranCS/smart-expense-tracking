@@ -2,6 +2,8 @@ package com.hugo.smartexpense.app.receipt.ui
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -75,11 +77,21 @@ fun ReceiptWorkflowScreen(
     onExport: (Int) -> Unit,
     debugOutputEnabled: Boolean = false,
     onTailscaleRequest: (Boolean) -> Unit = {},
+    onChooseItemImage: (String) -> Unit = {},
+    onAddTypedItem: () -> Unit = {},
+    onAddItem: () -> Unit = {}, onExtractAll: () -> Unit = {}, onCancelRemaining: () -> Unit = {},
+    onRemoveItem: (String) -> Unit = {}, onUndoRemove: () -> Unit = {}, onToggleExpanded: (String) -> Unit = {},
+    onSourceChange: (String, Boolean, ManualExpenseDraft) -> Unit = { _, _, _ -> },
+    onRetryItem: (String, Boolean) -> Unit = { _, _ -> },
+    onTransactionChange: (String, String, ReceiptReviewState) -> Unit = { _, _, _ -> },
+    onTransactionExport: (String, String) -> Unit = { _, _ -> },
+    onManualValues: (String) -> Unit = {},
+    onLoadThumbnail: suspend (BatchItemState) -> ReceiptImage? = { it.image },
+    onLoadPreparedImage: suspend (BatchItemState) -> ReceiptImage? = { it.image },
+    onExportAll: () -> Unit = {},
 ) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Smart Expense", style = MaterialTheme.typography.headlineMedium)
             TextButton(
@@ -106,9 +118,9 @@ fun ReceiptWorkflowScreen(
         OneDriveStatusCard(oneDrive, graphState.accountDisplayName, onOneDriveRecovery)
 
         Button(
-            enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy,
+            enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS,
             onClick = onChooseReceipt,
-        ) { Text(if (workflowState.extracting) "Extracting" else "Choose receipt") }
+        ) { Text(if (workflowState.extracting) "Extracting" else "Choose images") }
         if (workflowState.selectedImage != null) {
             OutlinedButton(
                 enabled = workflowState.canRetryExtraction && !profileState.busy,
@@ -122,18 +134,48 @@ fun ReceiptWorkflowScreen(
         if (debugOutputEnabled && rawOutput.isNotBlank()) {
             DebugOutputField("Raw extraction response", rawOutput)
         }
+        Text("Add more")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onChooseReceipt, enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS) { Text("Images") }
+            OutlinedButton(onClick = onAddItem, enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS) { Text("New item") }
+
+        }
+        Button(onClick = onExtractAll, enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy && profileState.verification?.busy != true && workflowState.items.any { it.eligible } && workflowState.items.none { it.status == BatchItemStatus.PREPARING }) { Text("Extract all") }
+        Button(onClick = onExportAll, enabled = oneDrive.readyForExport && workflowState.canExportAll,
+            modifier = Modifier.semantics { contentDescription = "Export all reviewed transactions" }) {
+            Text(if (workflowState.exporting) "Exporting" else "Export All")
+        }
+        Text("Export All confirms every remaining reviewed transaction and saves one JSON list. All remaining items must be ready.", style = MaterialTheme.typography.bodySmall)
+        workflowState.exportAllBlockers.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Text("${workflowState.items.count { it.status == BatchItemStatus.SUCCEEDED }} of ${workflowState.items.size} completed / ${workflowState.items.count { it.status == BatchItemStatus.PROCESSING }} processing / ${workflowState.items.count { it.status == BatchItemStatus.QUEUED }} queued / limit $MAX_BATCH_ITEMS")
+        if (workflowState.extracting) OutlinedButton(onClick = onCancelRemaining) { Text("Cancel remaining") }
+        workflowState.batchMessage?.let { Text(it); TextButton(onClick = onUndoRemove) { Text("Undo") } }
+        if (workflowState.items.isEmpty()) Card(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(false, { onAddTypedItem() })
+                Text("No receipt image")
+            }
+        }
         workflowState.reviews.forEachIndexed { index, review ->
             if (workflowState.reviews.size > 1) Text("Receipt ${index + 1} of ${workflowState.reviews.size}", style = MaterialTheme.typography.titleLarge)
             ReceiptReviewEditor(review, workflowState.exporting, oneDrive.readyForExport,
                 { onReviewChange(index, it) }, { onExport(index) }, debugOutputEnabled)
         }
+        } }
+        items(workflowState.items, key = { it.itemId }) { item ->
+            BatchInputGroup(item, workflowState.items.indexOfFirst { it.itemId == item.itemId } + 1, workflowState.extracting, workflowState.exporting, oneDrive.readyForExport,
+                debugOutputEnabled, { onChooseItemImage(item.itemId) }, onRemoveItem, onToggleExpanded, onSourceChange, onRetryItem,
+                onTransactionChange, onTransactionExport, onManualValues, onLoadThumbnail, onLoadPreparedImage,
+                extractionAvailable = !profileState.busy && profileState.verification?.busy != true && workflowState.items.none { it.status == BatchItemStatus.PREPARING })
+        }
+        item { Spacer(Modifier.height(24.dp)) }
     }
 }
 
 private const val SelectedReceiptPreviewDescription = "Review selected receipt image"
 
 @Composable
-private fun SelectedReceiptImageReview(selectedImage: ReceiptImage?) {
+internal fun SelectedReceiptImageReview(selectedImage: ReceiptImage?, onRemove: (() -> Unit)? = null, loadFullImage: (suspend () -> ReceiptImage?)? = null) {
     if (selectedImage == null) return
 
     // Recreate this subtree for each image so a prior bitmap cannot render while a replacement decodes.
@@ -177,7 +219,10 @@ private fun SelectedReceiptImageReview(selectedImage: ReceiptImage?) {
                     }
                 }
                 if (viewerOpen) {
-                    SelectedReceiptImageViewer(current.bitmap) { viewerOpen = false }
+                    val fullDisplay by produceState<androidx.compose.ui.graphics.ImageBitmap?>(if (loadFullImage == null) current.bitmap else null, selectedImage) {
+                        value = withContext(Dispatchers.IO) { loadFullImage?.invoke()?.let { decodeReceiptPreview(it.bytes)?.asImageBitmap() } ?: current.bitmap }
+                    }
+                    fullDisplay?.let { SelectedReceiptImageViewer(it, onRemove) { viewerOpen = false } }
                 }
             }
         }
@@ -209,6 +254,7 @@ private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
 @Composable
 private fun SelectedReceiptImageViewer(
     image: androidx.compose.ui.graphics.ImageBitmap,
+    onRemove: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     Dialog(
@@ -263,6 +309,7 @@ private fun SelectedReceiptImageViewer(
                 Modifier.align(Alignment.TopStart),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                onRemove?.let { TextButton({ it(); onClose() }) { Text("Remove", color = Color.White) } }
                 val canZoomIn = transform.scale < ReceiptImageViewerTransform.MAX_SCALE
                 TextButton(
                     onClick = {
@@ -331,7 +378,7 @@ private fun CompactProviderSelector(
                 text = {
                     Text(
                         if (state.selectorState.remoteProvidersEnabled) profile.displayName
-                        else "${profile.displayName} — enable in Settings",
+                        else "${profile.displayName} â€” enable in Settings",
                     )
                 },
                 enabled = state.selectorState.remoteProvidersEnabled,
@@ -369,7 +416,7 @@ private fun OneDriveStatusCard(
 }
 
 @Composable
-private fun ReceiptReviewEditor(
+internal fun ReceiptReviewEditor(
     state: ReceiptReviewState,
     exporting: Boolean,
     canExport: Boolean,
@@ -384,13 +431,17 @@ private fun ReceiptReviewEditor(
     ReviewField("Merchant", state.merchantName, editable) { onStateChange(state.copy(merchantName = it)) }
     ReviewField("Total amount", state.totalAmount, editable) { onStateChange(state.copy(totalAmount = it)) }
     ReviewField("Currency", state.currency, editable) { onStateChange(state.copy(currency = it.uppercase())) }
+    ReviewField("Notes", state.notes, editable) { onStateChange(state.copy(notes = it)) }
     ReviewField("Merchant location", state.merchantLocation, editable) { onStateChange(state.copy(merchantLocation = it)) }
     if (state.exportExpenseId != null && !state.exportComplete) {
         Text("This export keeps the saved fields on retry. Choose the receipt again to make changes.")
     }
+    if (state.currency != "CAD") Text("The Windows processor accepts CAD only. Other currencies go to review without conversion.")
     Text("Extraction status: ${state.extractionStatus}")
     Text("Confidence: ${state.confidence.ifBlank { "not available" }}")
-    Button(enabled = canExport && !exporting && !state.exportComplete, onClick = onExport) {
+    val validationErrors = state.expenseValidationErrors()
+    validationErrors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+    Button(enabled = canExport && validationErrors.isEmpty() && !exporting && !state.exportComplete, onClick = onExport) {
         Text(when {
             exporting -> "Exporting"
             state.exportComplete -> "Exported"
@@ -401,7 +452,7 @@ private fun ReceiptReviewEditor(
     if (!canExport) Text("Connect and verify OneDrive access before exporting.")
     if (debugOutputEnabled && state.exportJsonPreview != null) {
         Text(
-            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON — not published",
+            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON â€” not published",
             style = MaterialTheme.typography.titleMedium,
         )
         DebugOutputField("Handoff JSON", state.exportJsonPreview)
@@ -409,7 +460,7 @@ private fun ReceiptReviewEditor(
 }
 
 @Composable
-private fun DebugOutputField(label: String, value: String) {
+internal fun DebugOutputField(label: String, value: String) {
     OutlinedTextField(
         value = value,
         onValueChange = {},
@@ -422,6 +473,6 @@ private fun DebugOutputField(label: String, value: String) {
 }
 
 @Composable
-private fun ReviewField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
+internal fun ReviewField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
     OutlinedTextField(value, onValueChange, label = { Text(label) }, enabled = enabled, singleLine = true, modifier = Modifier.fillMaxWidth())
 }

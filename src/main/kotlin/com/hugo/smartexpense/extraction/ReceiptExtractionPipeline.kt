@@ -5,6 +5,25 @@ class ReceiptExtractionPipeline(
     private val parser: ReceiptExtractionParser = ReceiptExtractionParser(),
     private val ocrClient: OcrClient? = null,
 ) {
+    fun reviewTypedExpense(draft: TypedExpenseDraft): ReceiptExtractionPipelineResult {
+        val errors = draft.validationErrors().values.toList()
+        if (errors.isNotEmpty()) return ReceiptExtractionPipelineResult.Failed(errors, emptyList())
+        val parsed = parser.parse(modelClient.reviewTypedExpense(draft), requireReviewMetadata = true)
+        val attempts = listOf(ReceiptExtractionAttempt(ReceiptExtractionMode.TYPED_TEXT, parsed))
+        if (parsed is ParseResult.Invalid) return ReceiptExtractionPipelineResult.Failed(parsed.errors, attempts)
+        parsed as ParseResult.Valid
+        if (parsed.values.size != 1) return ReceiptExtractionPipelineResult.Failed(
+            listOf("Typed input must produce exactly one expense."), attempts)
+        val result = parsed.value
+        if (result.issues.isNotEmpty() || result.extractionStatus == ExtractionStatus.FAILED)
+            return ReceiptExtractionPipelineResult.Failed(
+                result.issues.ifEmpty { listOf("Typed expense contains unresolved facts; correct the draft or enter validated results manually.") }, attempts)
+        return ReceiptExtractionPipelineResult.Success(listOf(result.copy(
+            notes = draft.notes,
+            extractionStatus = if (result.suggestedCorrections.isNotEmpty()) ExtractionStatus.LOW_CONFIDENCE else result.extractionStatus,
+        )), ReceiptExtractionMode.TYPED_TEXT, attempts)
+    }
+
     fun extract(receiptImage: ReceiptImage): ReceiptExtractionPipelineResult {
         val attempts = mutableListOf<ReceiptExtractionAttempt>()
 

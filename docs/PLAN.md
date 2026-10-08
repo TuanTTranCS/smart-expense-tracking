@@ -1,6 +1,6 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-10-01
+Last updated: 2026-10-08
 
 ## Stack Direction
 
@@ -25,17 +25,20 @@ Windows automation:
 
 Data exchange:
 
-- One normalized receipt JPEG plus one JSON handoff file per confirmed expense
+- Image-backed expenses: one normalized receipt JPEG plus Version 2 JSON per confirmed transaction
+- Typed expenses: explicit no-image manual Version 3 JSON, preserving notes
+- Export All: one ordered JSON array of existing image/typed objects, image-first publication, immutable Room export membership, and Windows replay-safe expansion into per-expense processing
+- No-image extraction uses a dedicated natural-language prompt with the shared normalized receipt output, supporting future voice-transcribed text
 - Versioned schema
 - Microsoft Graph upload to OneDrive as the queue/sync transport
-- Image-first publication; the final JSON is the commit marker for the paired export
+- Image-first publication for Version 2; temporary/final JSON commit for both versions
 
 Excel integration:
 
 - Target workbook: `D:\Users\tuant\OneDrive\Documents\2_Others\Expenses_finance\Canada plan.xlsx` (tests copy it before any write)
 - Target sheet name: monthly `YYYY-MM`
 - Fill the first safe row from 12-100 where columns F and G are both empty; do not insert or reorder rows.
-- Map numeric amount to F, normalized merchant plus `MMM dd` receipt date to G, and a relative receipt-image hyperlink to H.
+- Map amount to F, normalized merchant plus `MMM dd` date to G, and a relative image hyperlink to H for Version 2; clear H for typed Version 3.
 - Preserve E, O, formulas, formatting, and unrelated workbook content.
 - Copy the latest earlier monthly sheet when needed, clear only F:H rows 12-100, and extend `Food Expense Summary` using its existing 89-row monthly detail pattern.
 - Skip exact date/amount/normalized-merchant duplicates and quarantine same-date/same-amount merchant conflicts.
@@ -97,9 +100,15 @@ Goals:
 
 ### Phase 2: Android MVP
 
+Export All and dedicated narrative prompt revision: ✅ Done on 2026-10-07. All remaining inputs must be ready; one ordered mixed JSON array uses image-first publication, Room v4 immutable membership and restart-safe reconciliation. Windows list expansion preserves existing per-expense processing. Unit/emulator/copy-workbook checks and debug build pass; see [the batch plan verification record](9.multiple-and-no-image-support-plan.md). Voice capture and production rollout remain future work.
+
 Status: In Progress
 
 Goals:
+
+- Mixed image/typed batch implementation and verification: see [the batch support plan](9.multiple-and-no-image-support-plan.md). Stage private processed images, persist Room metadata, use stable item/transaction revisions, grouped review, explicit Extract all, and shared provider budgets. Initial limit is 20 inputs, on-device concurrency one, remote concurrency one to three with 3.5-second default spacing. Keep keys outside batch state. Hardware benchmark and processor deployment evidence are tracked separately.
+- ✅ Done (2026-10-08): No-image cards expose **Extract / Retry extraction** for just that item and visible **Confirm and export**, disabled until current valid results and OneDrive readiness. Shared scheduling/provider snapshots, draft preservation, edit confirmation, busy guards and immutable exports remain in force (`REQ-A-030`, `AC-051`). All 60 shared/217 Android unit tests and debug assembly pass; see the batch plan for emulator verification. Physical-device validation remains pending.
+- ✅ Done: Free-text no-image revision implemented and automatically verified on 2026-10-06. Every source field is an optional hint; Merchant or Notes alone can describe the full expense. Combined-draft eligibility excludes blank/default-only CAD input. Text-only LLM extraction uses evidence from every field, arithmetic/natural-language dates/currency, and visible merchant typo suggestions; original strings/notes remain separate. Unresolved facts and invalid structured/manual results block export. All 59 shared tests, 188 Android unit tests, 27 emulator UI tests, and debug assembly pass against `REQ-A-022`, `REQ-A-025`, `AC-043`, `AC-047`. Live provider interpretation and physical-device checks remain pending; see the batch plan verification record.
 
 - Capture/import receipt image.
 - ✅ Done: Prevent Main/Settings controls from overlapping Android system UI with shared safe drawing inset handling. All 121 Android unit tests pass (including four inset layout regressions), device UI tests compile, and debug assembly succeeds on 2026-10-01. Physical-device validation: ✅ Done, confirmed by Hugo on 2026-10-01 (`REQ-UI-012`, `AC-037`).

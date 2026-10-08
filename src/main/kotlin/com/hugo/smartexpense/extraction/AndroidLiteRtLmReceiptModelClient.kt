@@ -16,27 +16,30 @@ class AndroidLiteRtLmReceiptModelClient(
     override fun extractFromReceiptImage(
         receiptImage: ReceiptImage,
         prompt: String,
-    ): String {
+    ): String = InferenceExecution.request { synchronized(engineLock) {
         require(supportsDirectImageInput()) {
             "${modelSpec.family} ${modelSpec.variant} is not configured for direct image input."
         }
 
         imageStore.stage(receiptImage).use { stagedImage ->
             openSession(includeVisionBackend = true).use { session ->
-                return session.sendMultimodalImageMessage(
+                return@synchronized session.sendMultimodalImageMessage(
                     prompt = prompt,
                     imagePath = stagedImage.absolutePath,
                 )
             }
         }
-    }
+    } }
 
-    override fun extractFromReceiptText(receiptText: String, prompt: String): String =
+    override fun extractFromReceiptText(receiptText: String, prompt: String): String = InferenceExecution.request { synchronized(engineLock) {
         openSession(includeVisionBackend = false).use { session ->
             session.sendTextMessage(
                 prompt = buildReceiptTextPrompt(prompt, receiptText),
             )
         }
+    } }
+
+    private companion object { val engineLock = Any() }
 
     private fun openSession(includeVisionBackend: Boolean): LiteRtLmSession {
         val config = LiteRtLmSessionConfig(

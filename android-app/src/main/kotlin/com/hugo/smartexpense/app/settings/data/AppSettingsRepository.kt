@@ -10,6 +10,8 @@ data class AppSettings(
     val debugOutputEnabled: Boolean = false,
     val deviceNameOverride: String = "",
     val detectedDeviceName: String = "Android device",
+    val batchMaxConcurrency: Int = 1,
+    val batchStartSpacingMillis: Long = 3_500,
 ) {
     val deviceName: String get() = deviceNameOverride.ifBlank { detectedDeviceName }
 }
@@ -19,6 +21,8 @@ interface AppSettingsRepository {
     fun setReduceOversizedImages(enabled: Boolean)
     fun setDebugOutputEnabled(enabled: Boolean)
     fun setDeviceNameOverride(name: String)
+    fun setBatchMaxConcurrency(value: Int) {}
+    fun setBatchStartSpacingMillis(value: Long) {}
 }
 
 class SharedPreferencesAppSettingsRepository(
@@ -31,6 +35,8 @@ class SharedPreferencesAppSettingsRepository(
             debugOutputEnabled = preferences.getBoolean(DEBUG_OUTPUT_ENABLED, false),
             deviceNameOverride = preferences.getString(DEVICE_NAME_OVERRIDE, "").orEmpty(),
             detectedDeviceName = detectedDeviceName,
+            batchMaxConcurrency = preferences.getInt(BATCH_MAX_CONCURRENCY, 1).coerceIn(1, 3),
+            batchStartSpacingMillis = preferences.getLong(BATCH_START_SPACING, 3_500).coerceIn(0, 60_000),
         ),
     )
 
@@ -52,9 +58,23 @@ class SharedPreferencesAppSettingsRepository(
         mutableSettings.value = mutableSettings.value.copy(deviceNameOverride = normalized)
     }
 
+    override fun setBatchMaxConcurrency(value: Int) {
+        require(value in 1..3)
+        preferences.edit().putInt(BATCH_MAX_CONCURRENCY, value).apply()
+        mutableSettings.value = mutableSettings.value.copy(batchMaxConcurrency = value)
+    }
+
+    override fun setBatchStartSpacingMillis(value: Long) {
+        require(value in 0..60_000)
+        preferences.edit().putLong(BATCH_START_SPACING, value).apply()
+        mutableSettings.value = mutableSettings.value.copy(batchStartSpacingMillis = value)
+    }
+
     private companion object {
         const val REDUCE_OVERSIZED_IMAGES = "reduce_oversized_images"
         const val DEBUG_OUTPUT_ENABLED = "debug_output_enabled"
         const val DEVICE_NAME_OVERRIDE = "device_name_override"
+        const val BATCH_MAX_CONCURRENCY = "batch_max_concurrency"
+        const val BATCH_START_SPACING = "batch_start_spacing"
     }
 }

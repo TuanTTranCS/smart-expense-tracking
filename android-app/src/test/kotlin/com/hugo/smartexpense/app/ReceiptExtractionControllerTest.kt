@@ -8,6 +8,8 @@ import com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult
 import com.hugo.smartexpense.extraction.ReceiptExtractionResult
 import com.hugo.smartexpense.extraction.RemoteProviderException
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlin.test.assertFailsWith
 import java.math.BigDecimal
 import java.time.LocalDate
 import kotlin.test.Test
@@ -21,6 +23,31 @@ class ReceiptExtractionControllerTest {
     private val loader = ReceiptImageLoader(
         FakeSource(byteArrayOf(9, 8, 7)),
     )
+
+    @Test
+    fun cancellationDuringLoadAndExtractionPropagates() {
+        val cancellation = CancellationException("Stopped")
+        val extracting = ReceiptExtractionController(loader) { throw cancellation }
+        assertSame(cancellation, assertFailsWith<CancellationException> {
+            extracting.extractAllWithImage("content://receipts/one")
+        })
+        val failingLoader = ReceiptImageLoader(object : ReceiptImageContentSource {
+            override fun displayName(uri: String): String? = "receipt.jpg"
+            override fun mimeType(uri: String): String? = "image/jpeg"
+            override fun readBytes(uri: String): ByteArray = throw cancellation
+        })
+        assertSame(cancellation, assertFailsWith<CancellationException> {
+            ReceiptExtractionController(failingLoader) { error("unused") }.extractAllWithImage("content://receipts/one")
+        })
+    }
+
+    @Test
+    fun editingNotesMarksReviewManualWithoutTrimmingText() {
+        val original = ReceiptReviewState(extractionStatus = "confirmed", notes = "original")
+        val edited = original.withUserEdits(original.copy(notes = "  edited\n "))
+        assertEquals("manual", edited.extractionStatus)
+        assertEquals("  edited\n ", edited.notes)
+    }
 
     @Test
     fun mapsTwoTransactionsToSeparateReviewStates() {

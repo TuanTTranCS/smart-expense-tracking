@@ -9,4 +9,7 @@ interface ReceiptModelClient {
     ): String
 
     fun extractFromReceiptText(receiptText: String, prompt: String = ReceiptExtractionPrompt.text): String
+
+    fun reviewTypedExpense(draft: TypedExpenseDraft): String =
+        extractFromReceiptText(draft.modelInput(), TypedExpenseReviewPrompt.text)
 }

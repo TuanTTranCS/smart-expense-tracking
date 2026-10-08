@@ -8,6 +8,11 @@ import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -56,7 +61,9 @@ fun SmartExpenseApp(
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, profilesViewModel) {
-        val observer = LifecycleEventObserver { _, event ->
+        val workflowLifecycle = com.hugo.smartexpense.app.receipt.ui.ReceiptWorkflowLifecycleObserver(workflowViewModel::setForeground) { activity.isChangingConfigurations }
+        val observer = LifecycleEventObserver { owner, event ->
+            workflowLifecycle.onStateChanged(owner, event)
             when (event) {
                 Lifecycle.Event.ON_RESUME -> profilesViewModel.setConnectivityMonitoring(true)
                 Lifecycle.Event.ON_PAUSE -> profilesViewModel.setConnectivityMonitoring(false)
@@ -71,17 +78,18 @@ fun SmartExpenseApp(
         }
     }
 
+    LaunchedEffect(profileState.selectorState.remoteProvidersEnabled) { if (!profileState.selectorState.remoteProvidersEnabled) workflowViewModel.revokeRemoteAccess() }
     SmartExpenseAppContent {
         NavHost(navController, startDestination = MAIN_ROUTE) {
             composable(MAIN_ROUTE) {
-                val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-                    uri?.let {
-                        workflowViewModel.importReceipt(
-                            it.toString(),
-                            profilesViewModel.uiState.value.effectiveRemoteProfile(),
-                        )
-                    }
+                var pickerTarget by remember { mutableStateOf<String?>(null) }
+                fun retainAndPrepare(uris: List<android.net.Uri>) {
+                    uris.forEach { uri -> runCatching { activity.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                    workflowViewModel.prepareImages(uris.map { it.toString() }, pickerTarget)
+                    pickerTarget = null
                 }
+                val picker = rememberLauncherForActivityResult(PickMultipleVisualMedia(20)) { uris -> retainAndPrepare(uris) }
+                val singlePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> uri?.let { retainAndPrepare(listOf(it)) } }
                 ReceiptWorkflowScreen(
                     profileState = profileState,
                     workflowState = workflowState,
@@ -100,7 +108,8 @@ fun SmartExpenseApp(
                             OneDriveRecoveryAction.NONE -> Unit
                         }
                     },
-                    onChooseReceipt = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                    onChooseItemImage = { id -> pickerTarget = id; singlePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                    onChooseReceipt = { pickerTarget = null; if (20 - workflowState.items.size == 1) singlePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) else picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
                     onRetryExtraction = {
                         workflowViewModel.retryExtraction(profilesViewModel.uiState.value.effectiveRemoteProfile())
                     },
@@ -108,6 +117,21 @@ fun SmartExpenseApp(
                     onExport = workflowViewModel::export,
                     debugOutputEnabled = settings.debugOutputEnabled,
                     onTailscaleRequest = profilesViewModel::requestTailscale,
+                    onAddTypedItem = workflowViewModel::addTypedItem,
+                    onAddItem = workflowViewModel::addItem,
+                    onExtractAll = { workflowViewModel.extractAll(profilesViewModel.uiState.value.effectiveRemoteProfile()) },
+                    onCancelRemaining = workflowViewModel::cancelRemaining,
+                    onRemoveItem = workflowViewModel::removeItem,
+                    onUndoRemove = workflowViewModel::undoRemove,
+                    onToggleExpanded = workflowViewModel::toggleExpanded,
+                    onSourceChange = workflowViewModel::updateSource,
+                    onRetryItem = { id, confirmed -> workflowViewModel.retryItem(id, profilesViewModel.uiState.value.effectiveRemoteProfile(), confirmed) },
+                    onTransactionChange = workflowViewModel::updateTransaction,
+                    onTransactionExport = workflowViewModel::exportTransaction,
+                    onExportAll = workflowViewModel::exportAll,
+                    onManualValues = workflowViewModel::useManualValues,
+                    onLoadThumbnail = workflowViewModel::loadPreparedThumbnail,
+                    onLoadPreparedImage = workflowViewModel::loadPreparedImage,
                 )
             }
             composable(SETTINGS_ROUTE) {
@@ -138,6 +162,8 @@ fun SmartExpenseApp(
                     onReduceOversizedImagesChange = settingsRepository::setReduceOversizedImages,
                     onDebugOutputEnabledChange = settingsRepository::setDebugOutputEnabled,
                     onDeviceNameChange = settingsRepository::setDeviceNameOverride,
+                    onBatchMaxConcurrencyChange = settingsRepository::setBatchMaxConcurrency,
+                    onBatchStartSpacingMillisChange = settingsRepository::setBatchStartSpacingMillis,
                     onExportProfiles = { exporter.launch(providerConfigFileName()) },
                     onImportProfiles = { importer.launch(arrayOf("application/json", "text/json")) },
                     onNavigateBack = { navController.popBackStack() },

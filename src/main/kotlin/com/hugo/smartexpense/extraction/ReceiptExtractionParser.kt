@@ -5,21 +5,47 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
 class ReceiptExtractionParser {
-    fun parse(rawModelOutput: String): ParseResult {
+    fun parse(rawModelOutput: String, requireReviewMetadata: Boolean = false): ParseResult {
         val objects = extractObjects(rawModelOutput)
             ?: return ParseResult.Invalid(listOf("Model output must contain a JSON object or a non-empty JSON array of objects."), rawModelOutput)
-        val results = objects.mapIndexed { index, json -> parseObject(json, rawModelOutput, index) }
+        val results = objects.mapIndexed { index, json -> parseObject(json, rawModelOutput, index, requireReviewMetadata) }
         val invalid = results.filterIsInstance<ParseResult.Invalid>()
         if (invalid.isNotEmpty()) return ParseResult.Invalid(invalid.flatMap { it.errors }, rawModelOutput)
         return ParseResult.Valid(results.map { (it as ParseResult.Valid).value })
     }
 
-    private fun parseObject(json: String, rawModelOutput: String, index: Int): ParseResult {
+    private fun parseObject(json: String, rawModelOutput: String, index: Int, requireReviewMetadata: Boolean): ParseResult {
 
         val fields = FlatJsonObjectParser.parse(json)
             ?: return ParseResult.Invalid(listOf("Model output JSON could not be parsed."), rawModelOutput)
 
         val errors = mutableListOf<String>()
+        if (requireReviewMetadata) {
+            val rawFields = requireNotNull(FlatJsonObjectParser.parse(json, preserveStringQuotes = true))
+            listOf("receiptDate", "merchantName", "currency", "extractionStatus").forEach { field ->
+                if (rawFields[field]?.startsWith('"') != true) errors += "$field must be a JSON string."
+            }
+            listOf("issues", "suggestedCorrections").forEach { field ->
+                if (rawFields[field]?.startsWith('[') != true) errors += "$field must be a JSON array."
+            }
+            if (fields["currency"]?.let { Regex("[A-Z]{3}").matches(it) } != true)
+                errors += "currency must be a three-letter uppercase code."
+            val jsonNumber = Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+            if (rawFields["totalAmount"]?.let(jsonNumber::matches) != true)
+                errors += "totalAmount must be a finite JSON number."
+            rawFields["confidence"]?.takeUnless { it == "null" }?.let {
+                if (!jsonNumber.matches(it)) errors += "confidence must be a JSON number or null."
+            }
+            if (fields["receiptDate"]?.let { Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}").matches(it) } != true)
+                errors += "receiptDate must be an ISO date in yyyy-MM-dd format."
+            if (fields["extractionStatus"] !in setOf("confirmed", "low_confidence", "failed"))
+                errors += "Typed review extractionStatus must be confirmed, low_confidence, or failed."
+        }
+        if (requireReviewMetadata && (!fields.containsKey("issues") || !fields.containsKey("suggestedCorrections")))
+            errors += "Typed review must include issues and suggestedCorrections arrays."
+        val issues = FlatJsonObjectParser.stringArray(fields["issues"])
+        val suggestions = FlatJsonObjectParser.stringArray(fields["suggestedCorrections"])
+        if (issues == null || suggestions == null) errors += "issues and suggestedCorrections must be arrays of strings."
         val receiptDate = parseDate(fields["receiptDate"], "receiptDate", errors)
         val merchantName = fields["merchantName"]?.trim().orEmpty()
         if (merchantName.isBlank()) {
@@ -58,6 +84,8 @@ class ReceiptExtractionParser {
                 confidence = confidence,
                 merchantLocation = fields["merchantLocation"]?.takeUnless { it == "null" }?.trim(),
                 rawModelOutput = rawModelOutput,
+                issues = issues.orEmpty(),
+                suggestedCorrections = suggestions.orEmpty(),
             )
         ))
     }
@@ -106,6 +134,7 @@ class ReceiptExtractionParser {
         var depth = 0
         var quoted = false
         var escaped = false
+        var expectsObject = true
         for (index in 1 until value.lastIndex) {
             val char = value[index]
             if (quoted) {
@@ -113,17 +142,21 @@ class ReceiptExtractionParser {
                 else if (char == '\\') escaped = true
                 else if (char == '"') quoted = false
             } else when (char) {
-                '"' -> quoted = true
-                '{' -> { if (depth++ == 0) start = index }
+                '"' -> { if (depth == 0) return null; quoted = true }
+                '{' -> {
+                    if (depth == 0) { if (!expectsObject) return null; start = index }
+                    depth++
+                }
                 '}' -> {
                     if (--depth < 0) return null
-                    if (depth == 0) objects += value.substring(start, index + 1)
+                    if (depth == 0) { objects += value.substring(start, index + 1); expectsObject = false }
                 }
-                ',', ' ', '\n', '\r', '\t' -> Unit
+                ',' -> if (depth == 0) { if (expectsObject) return null; expectsObject = true }
+                ' ', '\n', '\r', '\t' -> Unit
                 else -> if (depth == 0) return null
             }
         }
-        return objects.takeIf { it.isNotEmpty() && depth == 0 && !quoted }
+        return objects.takeIf { it.isNotEmpty() && depth == 0 && !quoted && !expectsObject }
     }
 }
 

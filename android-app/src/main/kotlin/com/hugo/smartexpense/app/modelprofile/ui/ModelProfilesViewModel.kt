@@ -39,6 +39,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.asContextElement
+import kotlinx.coroutines.job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlin.coroutines.coroutineContext
+import com.hugo.smartexpense.extraction.InferenceExecution
 
 sealed interface ModelCatalogState {
     data object Idle : ModelCatalogState
@@ -86,13 +93,20 @@ fun interface ModelProfileTestService {
 
 class DefaultModelProfileTestService(
     private val credentialStore: ApiKeyStore,
+    private val deadlineMillis: Long = 90_000,
+    private val startSpacingMillis: Long = 3_500,
     private val clientFactory: (ApiKeyStore) -> RemoteModelClientFactory,
 ) : ModelProfileTestService {
-    override suspend fun test(profile: ModelProfile, apiKeyOverride: String?): ProviderTestResult = withContext(Dispatchers.IO) {
-        val overlay = ApiKeyStore { alias ->
-            if (alias == profile.credentialAlias && !apiKeyOverride.isNullOrBlank()) apiKeyOverride else credentialStore.get(alias)
+    override suspend fun test(profile: ModelProfile, apiKeyOverride: String?): ProviderTestResult = try { withTimeout(deadlineMillis) {
+        val credential = apiKeyOverride?.takeIf { it.isNotBlank() } ?: credentialStore.get(profile.credentialAlias)
+        val overlay = ApiKeyStore { alias -> if (alias == profile.credentialAlias) credential else null }
+        val scope = InferenceExecution.Scope(coroutineContext.job, InferenceExecution.sharedGate, startSpacingMillis)
+        withContext(Dispatchers.IO + InferenceExecution.current.asContextElement(scope)) {
+            clientFactory(overlay).create(profile).testConfiguration()
         }
-        clientFactory(overlay).create(profile).testConfiguration()
+    } } catch (timeout: TimeoutCancellationException) {
+        coroutineContext.ensureActive()
+        ProviderTestResult.Failed("Provider verification timed out. Retry when the provider is ready.")
     }
 }
 
@@ -452,7 +466,10 @@ class ModelProfilesViewModel(
                         is ProviderTestResult.Failed -> "Verification failed: ${result.reason}"
                     }
                 }
-            }.getOrElse { it.safeMessage() }
+            }.getOrElse {
+                if (it is CancellationException) throw it
+                it.safeMessage()
+            }
             verification.value = ProviderVerificationState(providerId, false, resultMessage)
         }
     }

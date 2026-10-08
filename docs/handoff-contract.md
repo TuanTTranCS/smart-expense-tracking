@@ -1,6 +1,6 @@
 # Handoff Contract
 
-Last updated: 2026-09-06
+Last updated: 2026-10-07
 
 ## Purpose
 
@@ -83,9 +83,31 @@ Version 2 is implemented for Android receipt export. It retains the Version 1 fi
 
 The Version 2 JSON must not be published under its final `.json` name until the referenced image upload is complete.
 
-New Android exports also include `sourceDeviceName`, a non-empty human readable name detected from the Android manufacturer and model or overridden in Settings. The stable `sourceDeviceId` remains unchanged. When an image contains distinct transactions, each confirmed transaction gets its own Version 2 object in a separate JSON file, a distinct expense ID, and a paired image path.
+New Android exports also include `sourceDeviceName`, a non-empty human readable name detected from the Android manufacturer and model or overridden in Settings. The stable `sourceDeviceId` remains unchanged. When an image contains distinct transactions, each confirmed transaction gets its own Version 2 object, a distinct expense ID, and a paired image path. Individual export places each object in a separate file; Export All places them in the combined array.
+
+## Version 3 Typed Expenses
+
+Image-backed exports remain Version 2. Version 3 accepts only typed-origin expenses with these required fields: integer `schemaVersion: 3`, `inputSource: "typed"`, boolean `hasReceiptImage: false`, `receiptImageRelativePath: null`, and `extractionStatus: "manual"`. Empty paths are invalid. `receiptImageUri`, `originalImageFileName`, and `receiptPhotoLink` must be absent or null. Required identity, timestamp, device ID/name, date, merchant, numeric non-negative amount and currency retain their existing rules. Optional `notes` is preserved as user text, including whitespace/newlines.
+
+No-image source fields are optional free-text hints; the Android LLM extracts normalized fields using their combined evidence. Version 3 contains only validated, user-confirmed structured values (for example, numeric 65 from `15+50`), while notes remain exact original user text unless intentionally edited. Source expressions, unresolved issues, and invalid manual review values cannot bypass export validation.
+
+Typed export publishes temporary JSON followed by the final-name commit without image normalization, image-folder resolution or upload. Retries reuse the persisted reviewed payload/ID/timestamp/name. Production accepts Version 2 and this explicit Version 3 shape; Version 1 remains fixture-only. Version 3 image combinations are rejected.
+
+The processor uses the same monthly selection, safe F/G row, CAD-only policy, duplicate handling, locking and archive/quarantine state for both versions. Typed records leave H empty and clear its stale text/hyperlinks on the chosen safe row. Notes stay in the archived handoff; no notes workbook column is assigned. Non-CAD typed expenses can be reviewed/exported on Android but are quarantined on Windows without conversion.
+
+Release the compatible Windows processor before using Android typed publication. Changing the live scheduled job or production workbook requires separate rollout work. Fixture/unit and copied-workbook tests do not activate the live job.
 
 ## Canonical Field Names
+
+### Combined Export All lists
+
+Individual exports keep their existing singleton objects and filenames. Export All publishes a nonempty top-level JSON array of those same objects, in input/transaction order, under `expense_batch_yyyyMMdd_HHmmss_<shortBatchId>.json`. Mixed Version 2 and typed Version 3 objects are permitted; each member retains its own expenseId, createdAt, notes, source contract and deterministic image path. The batch ID/filename identifies the list; it does not replace member expense identity. All referenced JPEGs must exist before the final list appears. Upload to `.json.uploading` before the final rename/commit.
+
+The Android exporter persists ordered membership, reviewed snapshots and paths atomically. Retry always resumes the original list; members cannot be silently moved to singleton publication or merged with newly added transactions. Already completed exports are excluded from a new Export All action.
+
+Windows validates the entire array and checks member-file collisions before staging any member. It derives canonical singleton names from each member's createdAt and expenseId, writes through temporary files, and archives the source list in `receipt_batches_expanded` once every member is staged or already archived. The existing processor then handles those singleton members independently, retaining per-expense duplicate protection, CAD review/quarantine, workbook mapping and completion archives. An expansion archive means the list was safely expanded; member processing outcomes remain in the usual per-expense archives/state. Replay and interrupted staging are idempotent, conflicting payloads are never overwritten, and dry runs create no files.
+
+Deploy the compatible processor before using combined list exports in production. This revision does not modify the live scheduled job or production workbook.
 
 Use the JSON field names above unchanged in Kotlin DTOs, PowerShell objects, logs, and tests. Platform-specific models may use idiomatic type names, but serialized JSON must remain camelCase.
 
@@ -94,7 +116,7 @@ Use the JSON field names above unchanged in Kotlin DTOs, PowerShell objects, log
 A handoff file is valid when:
 
 - It is parseable JSON.
-- It has `schemaVersion` equal to `1` for legacy fixtures or `2` for paired receipt exports.
+- Each expense object has `schemaVersion` equal to `1` for legacy fixtures, `2` for paired receipt exports, or `3` for the explicit typed branch. Production singleton/list processing permits only Version 2 and the documented Version 3 shape.
 - All required fields are present.
 - Required string fields are not blank.
 - `receiptDate` is a valid calendar date in `yyyy-MM-dd` format.

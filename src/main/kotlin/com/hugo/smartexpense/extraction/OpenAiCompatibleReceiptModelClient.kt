@@ -8,6 +8,12 @@ class OpenAiCompatibleReceiptModelClient(
     private val apiKeyStore: ApiKeyStore,
     private val transport: OpenAiCompatibleApiTransport,
 ) : ReceiptModelClient {
+    override fun reviewTypedExpense(draft: TypedExpenseDraft): String = executeWithInvalidJsonRecovery(
+        buildTextRequest(TypedExpenseReviewPrompt.text, draft.modelInput(), "typed_expense_review", typedReviewSchema),
+        if (provider.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA)
+            buildTextRequest(TypedExpenseReviewPrompt.text, draft.modelInput(), "typed_expense_review", typedReviewSchema, false)
+        else null,
+    )
     override fun supportsDirectImageInput(): Boolean = provider.inputMode == RemoteInputMode.DIRECT_IMAGE
 
     override fun extractFromReceiptImage(receiptImage: ReceiptImage, prompt: String): String {
@@ -52,7 +58,7 @@ class OpenAiCompatibleReceiptModelClient(
 
     private fun execute(request: OpenAiCompatibleApiRequest): String {
         try {
-            val response = transport.send(request)
+            val response = send(request, verification = true)
             return mapResponse(response)
         } catch (error: IOException) {
             throw RemoteProviderException.NetworkUnavailable(
@@ -68,9 +74,9 @@ class OpenAiCompatibleReceiptModelClient(
         recoveryRequest: OpenAiCompatibleApiRequest?,
     ): String {
         try {
-            val response = transport.send(request)
+            val response = send(request)
             val finalResponse = if (recoveryRequest != null && response.isInvalidJsonRequest()) {
-                transport.send(recoveryRequest)
+                send(recoveryRequest)
             } else {
                 response
             }
@@ -83,6 +89,9 @@ class OpenAiCompatibleReceiptModelClient(
             )
         }
     }
+
+    private fun send(request: OpenAiCompatibleApiRequest, verification: Boolean = false): OpenAiCompatibleApiResponse =
+        InferenceExecution.request(verification) { transport.send(request) }
 
     private fun OpenAiCompatibleApiResponse.isInvalidJsonRequest(): Boolean {
         if (statusCode != 400) return false
@@ -103,12 +112,14 @@ class OpenAiCompatibleReceiptModelClient(
                 provider.displayName,
                 extractErrorMessage(response.body) ?: "${provider.displayName} rate limited the request.",
                 response.body,
+                retryAfterMillis = parseRetryAfter(response.headers.entries.firstOrNull { it.key.equals("Retry-After", true) }?.value),
             )
             else -> throw RemoteProviderException.UnexpectedResponse(
                 provider.displayName,
                 extractErrorMessage(response.body)
                     ?: "Unexpected ${response.statusCode} response from ${provider.displayName}.",
                 response.body,
+                httpStatusCode = response.statusCode,
             )
         }
     }
@@ -192,7 +203,9 @@ class OpenAiCompatibleReceiptModelClient(
     }
 
     private fun buildRequest(body: String): OpenAiCompatibleApiRequest {
-        val apiKey = apiKeyStore.get(provider.apiKeyAlias)
+        val activeScope = InferenceExecution.current.get()
+        val apiKey = (if (activeScope == null) apiKeyStore.get(provider.apiKeyAlias)
+            else activeScope.credentials.get(provider.apiKeyAlias, apiKeyStore))
             ?: throw RemoteProviderException.AuthenticationFailed(
                 provider.displayName,
                 "No API key is available for ${provider.displayName}.",
@@ -346,6 +359,11 @@ class OpenAiCompatibleReceiptModelClient(
     }
 
     private companion object {
+        val typedReviewSchema get() = receiptExtractionSchema
+            .replace("\"items\": {", "\"minItems\": 1, \"maxItems\": 1, \"items\": {")
+            .replace("\"merchantLocation\": {\"type\": [\"string\", \"null\"]}",
+                "\"merchantLocation\": {\"type\": [\"string\", \"null\"]}, \"issues\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}, \"suggestedCorrections\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}")
+            .replace("\"confidence\", \"merchantLocation\"]", "\"confidence\", \"merchantLocation\", \"issues\", \"suggestedCorrections\"]")
         val receiptExtractionSchema = """
             {
               "type": "object",
@@ -403,6 +421,7 @@ data class RedactedApiRequest(
 data class OpenAiCompatibleApiResponse(
     val statusCode: Int,
     val body: String,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 interface OpenAiCompatibleApiTransport {
@@ -427,12 +446,21 @@ sealed class RemoteProviderException(
     class AuthenticationFailed(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
         RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
 
-    class RateLimited(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
+    class RateLimited(providerDisplayName: String, message: String, rawResponseBody: String? = null, val retryAfterMillis: Long? = null) :
         RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
 
     class NetworkUnavailable(providerDisplayName: String, message: String, cause: Throwable? = null) :
         RemoteProviderException(providerDisplayName, message, cause)
 
-    class UnexpectedResponse(providerDisplayName: String, message: String, rawResponseBody: String? = null) :
+    class UnexpectedResponse(providerDisplayName: String, message: String, rawResponseBody: String? = null, val httpStatusCode: Int? = null) :
         RemoteProviderException(providerDisplayName, message, rawResponseBody = rawResponseBody)
+}
+
+internal fun parseRetryAfter(value: String?, now: java.time.Instant = java.time.Instant.now()): Long? {
+    if (value == null) return null
+    value.trim().toLongOrNull()?.takeIf { it >= 0 && it <= Long.MAX_VALUE / 1000 }?.let { return it * 1000 }
+    return runCatching {
+        val time = java.time.ZonedDateTime.parse(value, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()
+        java.time.Duration.between(now, time).toMillis().coerceAtLeast(0)
+    }.getOrNull()
 }

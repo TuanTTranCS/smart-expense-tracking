@@ -11,6 +11,21 @@ import kotlin.test.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
 class AppSettingsRepositoryTest {
+    @Test fun batchPolicyDefaultsAndPersistedBounds() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = context.getSharedPreferences("batch-policy-test", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val repository = SharedPreferencesAppSettingsRepository(preferences)
+        assertEquals(1, repository.settings.value.batchMaxConcurrency)
+        assertEquals(3500, repository.settings.value.batchStartSpacingMillis)
+        repository.setBatchMaxConcurrency(3)
+        repository.setBatchStartSpacingMillis(500)
+        val restored = SharedPreferencesAppSettingsRepository(preferences).settings.value
+        assertEquals(3, restored.batchMaxConcurrency)
+        assertEquals(500, restored.batchStartSpacingMillis)
+        kotlin.test.assertFailsWith<IllegalArgumentException> { repository.setBatchMaxConcurrency(4) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { repository.setBatchStartSpacingMillis(-1) }
+    }
     @Test fun deviceNameDefaultsToDetectedNameAndOverridePersists() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val preferences = context.getSharedPreferences("device-name-settings-test", Context.MODE_PRIVATE)

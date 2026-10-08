@@ -1,6 +1,6 @@
 # Smart Expense Tracking
 
-An Android app for turning receipt photos into reviewed expense records, exporting them to OneDrive, and automatically updating an Excel budget workbook.
+An Android app for reviewing receipt photos and typed expenses, exporting them to OneDrive, and automatically updating an Excel budget workbook.
 
 ## Why this exists
 
@@ -10,17 +10,20 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 
 ## Personal workflow
 
-1. Take a picture of a receipt on a phone.
-2. The Android app extracts receipt details with a chosen LLM provider: a privacy-first local model, a private or self-hosted OpenAI-compatible provider, or an explicitly enabled remote provider.
-3. Review and correct the extracted transaction, then upload the normalized receipt image and its receipt-information handoff to OneDrive.
+1. Choose receipt images or add typed expenses with **No receipt image**. Prepare and inspect up to 20 inputs in one mixed batch.
+2. Choose **Extract all**, or **Extract** on a no-image card, to request review from the selected LLM provider. Use **Retry extraction** to reprocess one item.
+3. Review each group's results, then export individually or choose **Export All** to confirm every remaining transaction and publish one JSON list. All remaining items must be ready and valid. Images use paired Version 2 JPEG/JSON; typed expenses use manual Version 3 JSON with notes and no image.
 4. A five-minute cron job on a mini PC reads the synchronized handoff, updates the correct monthly sheet in the Excel workbook, and posts reportable results to a private Discord channel.
 
 ## Features
 
 ### 1. Capture and review on Android
 
-- Import a receipt image and inspect the processed image with pinch or Zoom in/Zoom out controls.
-- Use **Retry extraction** on Main to resend the selected image with the currently selected provider; this replaces the current review results.
+- Select multiple images, inspect their exact processed previews with zoom controls, remove/Undo, and add more before **Extract all**.
+- Mix images with no-image expenses described in any field, including Merchant or Notes alone. The LLM interprets expressions such as `15+50`, dates such as `Oct 7 2026`, and currency names; original drafts stay visible beside normalized results and suggestions for confirmation.
+- A dedicated no-image prompt accepts natural expense narratives and returns the shared receipt format, ready for future voice-transcribed text.
+- No-image cards show **Extract / Retry extraction** and **Confirm and export**; confirmation requires a current valid review and ready OneDrive access.
+- Collapse input groups and retry one failed input while retaining the other results and stable export identities.
 - Review each distinct transaction separately, correct fields when needed, and export low-confidence receipts as `confirmed` or corrected receipts as `manual`.
 - Keep receipt work on Main, with provider, OneDrive, image-preprocessing, and device-name settings in Settings.
 
@@ -34,7 +37,9 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 ### 3. Hand off the receipt through OneDrive
 
 - Connect a personal Microsoft account and publish a normalized receipt JPEG before its versioned JSON handoff, with retry support.
-- Preserve an image-first, paired handoff so the Windows processor never receives a processable receipt record without its image.
+- Preserve image-first Version 2 handoffs; explicit typed Version 3 handoffs omit images and keep Excel column H empty. The compatible Windows processor must be deployed before publishing typed records.
+- **Export All** publishes one ordered JSON array after every required image upload. Deploy the compatible Windows processor before using combined lists; retries preserve the original export membership.
+- Windows accepts CAD only; other currencies are quarantined for review without conversion. Notes remain in archived JSON.
 
 ### 4. Update Excel and notify privately
 
@@ -90,7 +95,11 @@ Run the JVM tests and assemble the Android app:
 
 The repository also includes contract fixtures and PowerShell checks in `fixtures/` and `scripts/`.
 
+Batch Settings default to one item at a time and 3.5 seconds between remote request starts, with a maximum of three concurrent items. On-device inference stays serial. Measure your model/server before increasing concurrency.
+
 ## Implementation status
+
+Multiple-image and no-image support, including free-text entry, Export All, and item-level extraction/export actions, is ✅ Done and verified on Pixel 7, confirmed by Hugo on 2026-10-08.
 
 The Android receipt workflow, provider profile management, OneDrive authentication, image-first paired export, and provider configuration transfer are implemented and have unit-test coverage. Physical-device validation has confirmed the main workflow, remote LM Studio extraction, profile transfer, and OneDrive export. The Windows PowerShell/Excel COM processor is implemented and verified against disposable copies of the real workbook. Its five-minute Hermes no-agent job is active, uses the repository PowerShell entry point through a thin external wrapper, and delivers reportable outcomes to Discord.
 

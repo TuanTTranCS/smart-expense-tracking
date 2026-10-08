@@ -12,5 +12,8 @@ data class ReceiptExtractionResult(
     val confidence: BigDecimal? = null,
     val merchantLocation: String? = null,
     val rawModelOutput: String,
+    val notes: String = "",
+    val issues: List<String> = emptyList(),
+    val suggestedCorrections: List<String> = emptyList(),
 )
 

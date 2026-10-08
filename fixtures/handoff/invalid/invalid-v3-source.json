@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 3,
+  "inputSource": "image",
+  "hasReceiptImage": true,
+  "expenseId": "99999999-1234-4123-8123-123456789012",
+  "createdAt": "2026-10-05T12:00:00-07:00",
+  "sourceDeviceId": "fixture-device",
+  "sourceDeviceName": "Test Phone",
+  "receiptDate": "2026-10-05",
+  "merchantName": "Typed Merchant",
+  "totalAmount": 12.34,
+  "currency": "CAD",
+  "extractionStatus": "manual",
+  "receiptImageRelativePath": null
+}

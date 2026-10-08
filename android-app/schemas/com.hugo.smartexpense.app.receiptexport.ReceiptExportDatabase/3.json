@@ -1,0 +1,150 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "19b144a4d0a074e298ebbe5be1ebc2e6",
+    "entities": [
+      {
+        "tableName": "receipt_exports",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`expense_id` TEXT NOT NULL, `created_at` TEXT NOT NULL, `source_device_id` TEXT NOT NULL, `source_device_name` TEXT NOT NULL, `receipt_date` TEXT NOT NULL, `merchant_name` TEXT NOT NULL, `total_amount` TEXT NOT NULL, `currency` TEXT NOT NULL, `extraction_status` TEXT NOT NULL, `merchant_location` TEXT, `original_image_file_name` TEXT, `source_image_uri` TEXT, `receipt_image_relative_path` TEXT, `json_relative_path` TEXT NOT NULL, `temporary_json_relative_path` TEXT NOT NULL, `normalized_image_local_path` TEXT, `status` TEXT NOT NULL, `failure` TEXT, `retry_after_seconds` INTEGER, `schema_version` INTEGER NOT NULL, `source_type` TEXT NOT NULL, `notes` TEXT NOT NULL, PRIMARY KEY(`expense_id`))",
+        "fields": [
+          {
+            "fieldPath": "expenseId",
+            "columnName": "expense_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDeviceId",
+            "columnName": "source_device_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDeviceName",
+            "columnName": "source_device_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receiptDate",
+            "columnName": "receipt_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "merchantName",
+            "columnName": "merchant_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalAmount",
+            "columnName": "total_amount",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extractionStatus",
+            "columnName": "extraction_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "merchantLocation",
+            "columnName": "merchant_location",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "originalImageFileName",
+            "columnName": "original_image_file_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceImageUri",
+            "columnName": "source_image_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "receiptImageRelativePath",
+            "columnName": "receipt_image_relative_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "jsonRelativePath",
+            "columnName": "json_relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temporaryJsonRelativePath",
+            "columnName": "temporary_json_relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedImageLocalPath",
+            "columnName": "normalized_image_local_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failure",
+            "columnName": "failure",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "retryAfterSeconds",
+            "columnName": "retry_after_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schema_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "source_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "expense_id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '19b144a4d0a074e298ebbe5be1ebc2e6')"
+    ]
+  }
+}

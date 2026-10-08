@@ -2,6 +2,10 @@ package com.hugo.smartexpense.app.receiptexport
 
 import com.hugo.smartexpense.app.graphauth.GraphAuthenticationClient
 import com.hugo.smartexpense.app.graphauth.GraphAuthenticationException
+import com.hugo.smartexpense.app.ReceiptSourceType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -53,8 +57,49 @@ class MicrosoftGraphReceiptExportPublisher(
     private val authenticationClient: GraphAuthenticationClient,
     private val transport: GraphContentTransport = AndroidGraphContentTransport(),
 ) : ReceiptExportPublisher {
-    override suspend fun publish(record: ReceiptExportRecord, imageBytes: ByteArray) {
-        val token = try {
+    override suspend fun publish(record: ReceiptExportRecord, imageBytes: ByteArray?) {
+        record.validateSourceContract()
+        if (record.sourceType == ReceiptSourceType.IMAGE) require(imageBytes != null && imageBytes.isNotEmpty())
+        else require(imageBytes == null)
+        val token = accessToken()
+
+        if (record.sourceType == ReceiptSourceType.IMAGE) {
+            val imagePath = requireNotNull(record.receiptImageRelativePath)
+            ensureFolder(token, "Documents/2_Others/Expenses_finance", "receipt_images")
+            ensureFolder(token, RECEIPT_IMAGE_FOLDER, imagePath.substringAfter("receipt_images/").substringBefore('/'))
+            put(token, imagePath, "image/jpeg", requireNotNull(imageBytes))
+        }
+        put(token, record.temporaryJsonRelativePath, "application/json", record.toHandoffJson().toByteArray())
+        commitJson(token, record.temporaryJsonRelativePath, record.jsonRelativePath.substringAfterLast('/'))
+    }
+
+    override suspend fun publishBatch(batch: ReceiptExportBatch, records: List<Pair<ReceiptExportRecord, ByteArray?>>) {
+        require(records.map { it.first.expenseId } == batch.expenseIds)
+        records.forEach { (record, bytes) ->
+            record.validateSourceContract()
+            require(record.batchId == batch.batchId && record.jsonRelativePath == batch.jsonRelativePath)
+            if (record.sourceType == ReceiptSourceType.IMAGE) require(bytes != null && bytes.size in 1 until 200 * 1024)
+            else require(bytes == null)
+        }
+        val token = accessToken()
+        for ((record, bytes) in records) {
+            coroutineContext.ensureActive()
+            if (record.sourceType == ReceiptSourceType.IMAGE) {
+                val imagePath = requireNotNull(record.receiptImageRelativePath)
+                ensureFolder(token, "Documents/2_Others/Expenses_finance", "receipt_images")
+                ensureFolder(token, RECEIPT_IMAGE_FOLDER, imagePath.substringAfter("receipt_images/").substringBefore('/'))
+                coroutineContext.ensureActive()
+                put(token, imagePath, "image/jpeg", requireNotNull(bytes))
+            }
+        }
+        coroutineContext.ensureActive()
+        val json = records.joinToString(prefix = "[", postfix = "]") { it.first.toHandoffJson() }
+        put(token, batch.temporaryJsonRelativePath, "application/json", json.toByteArray(Charsets.UTF_8))
+        coroutineContext.ensureActive()
+        commitJson(token, batch.temporaryJsonRelativePath, batch.jsonRelativePath.substringAfterLast('/'))
+    }
+
+    private suspend fun accessToken(): String = try {
             authenticationClient.acquireAccessTokenSilently()
         } catch (_: GraphAuthenticationException.InteractionRequired) {
             throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
@@ -65,13 +110,6 @@ class MicrosoftGraphReceiptExportPublisher(
         } catch (_: GraphAuthenticationException) {
             throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
         }
-
-        ensureFolder(token, "Documents/2_Others/Expenses_finance", "receipt_images")
-        ensureFolder(token, RECEIPT_IMAGE_FOLDER, record.receiptImageRelativePath.substringAfter("receipt_images/").substringBefore('/'))
-        put(token, record.receiptImageRelativePath, "image/jpeg", imageBytes)
-        put(token, record.temporaryJsonRelativePath, "application/json", record.toVersion2Json().toByteArray())
-        commitJson(token, record.temporaryJsonRelativePath, record.jsonRelativePath.substringAfterLast('/'))
-    }
 
     private fun ensureFolder(token: String, parentPath: String, name: String) {
         val body = """{"name":"${name.jsonEscape()}","folder":{},"@microsoft.graph.conflictBehavior":"fail"}"""
@@ -129,6 +167,8 @@ class MicrosoftGraphReceiptExportPublisher(
                 body,
             ),
         )
+    } catch (error: CancellationException) {
+        throw error
     } catch (_: Exception) {
         throw ReceiptExportException(ReceiptExportFailure.NETWORK_UNAVAILABLE)
     }

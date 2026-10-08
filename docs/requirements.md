@@ -1,6 +1,10 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-10-01
+Last updated: 2026-10-08
+
+Dedicated narrative prompt and Export All revision: implementation and automated verification ✅ Done on 2026-10-07 for `REQ-A-027..029`, `REQ-H-009`, `REQ-W-014`, and `AC-048..050`. All 60 shared tests, 210 Android unit tests, 28 emulator UI tests, debug assembly, 51 Windows batch assertions, 22 typed assertions, existing fixtures, and 117 copied-workbook assertions pass. Live provider interpretation, physical-device validation and production rollout remain pending.
+
+Free-text no-image revision: implementation and automated verification ✅ Done on 2026-10-06 for `REQ-A-022`, `REQ-A-025`, `AC-043`, and `AC-047`: 59 shared tests, 188 Android unit tests, 27 emulator UI tests, and debug assembly pass. Live provider interpretation/physical-device checks remain pending; see the batch plan verification record.
 
 ## Purpose
 
@@ -35,7 +39,7 @@ The system has three main components:
    - Uploads a normalized receipt JPEG and its handoff file into OneDrive using Microsoft Graph.
 
 2. OneDrive expense folders
-   - Receives one JSON handoff file and one normalized receipt JPEG per confirmed expense.
+   - Receives singleton expense JSON or an Export All JSON list, with one normalized receipt JPEG per image-backed expense and no image for typed expenses.
    - Syncs from Android/cloud to the Windows computer.
    - Acts as the queue between phone and Windows automation.
 
@@ -64,9 +68,9 @@ REQ-A-004: The app shall show the extracted fields to the user for confirmation 
 
 REQ-A-005: The app shall allow the user to correct any extracted field before export.
 
-REQ-A-006: The app shall write one structured handoff file per confirmed expense.
+REQ-A-006: Individual confirmation shall write one structured handoff file per expense. Export All shall write one JSON array containing all remaining confirmed expense objects as specified by REQ-A-027; each object retains its own expense identity and source contract.
 
-REQ-A-007: The app shall include a globally unique expense id in each handoff file.
+REQ-A-007: The app shall include a globally unique expense id in each expense object, whether published individually or as a combined-list member.
 
 REQ-A-008: The app shall write handoff files to a user-configured OneDrive folder.
 
@@ -74,25 +78,45 @@ REQ-A-009: The app shall preserve a local record of exported expenses and their 
 
 REQ-A-010: The app shall authenticate with Microsoft Graph to upload handoff files to OneDrive.
 
-REQ-A-011: When exporting a confirmed expense, the app shall generate and upload a normalized JPEG copy of the processed receipt image, strictly below 200 KB (204,800 bytes), regardless of whether extraction-time resizing was disabled or unnecessary.
+REQ-A-011: When exporting a confirmed image-backed expense, the app shall generate and upload a normalized JPEG copy of the processed receipt image, strictly below 200 KB (204,800 bytes), regardless of whether extraction-time resizing was disabled or unnecessary. Typed-origin expenses shall export explicit image-free Version 3 records without image preparation or upload.
 
-REQ-A-012: The app shall upload receipt images under the OneDrive-root-relative folder `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM`, where `YYYY-MM` is derived from the export timestamp in the Android device's local timezone.
+REQ-A-012: For image-backed expenses, the app shall upload receipt images under the OneDrive-root-relative folder `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM`, where `YYYY-MM` is derived from the export timestamp in the Android device's local timezone.
 
-REQ-A-013: Receipt image file names shall use `YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg`, where the timestamp is the same export timestamp used for the JSON handoff name and `<shortExpenseId>` follows the handoff naming rule.
+REQ-A-013: Image-backed receipt file names shall use `YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg`, where the timestamp is the same export timestamp used for the JSON handoff name and `<shortExpenseId>` follows the handoff naming rule. Typed exports have no image filename.
 
-REQ-A-014: The handoff JSON shall include the required OneDrive-root-relative field `receiptImageRelativePath`, using forward slashes and identifying the uploaded JPEG for that expense.
+REQ-A-014: Version 2 handoff JSON shall include the required OneDrive-root-relative string `receiptImageRelativePath`, using forward slashes and identifying the uploaded JPEG. Typed Version 3 shall require `inputSource: "typed"`, boolean `hasReceiptImage: false`, and explicit `receiptImageRelativePath: null`; other image fields shall be null or absent.
 
-REQ-A-015: The app shall complete the receipt image upload before publishing the final `.json` handoff file. If image upload fails, the final JSON shall not be published and the local export shall remain retryable with an actionable status.
+REQ-A-015: For Version 2 the app shall complete image upload before publishing the final `.json`; image failure shall prevent final publication and retain actionable retry state. Version 3 shall skip image operations and publish temporary JSON followed by the same final-name commit.
 
-REQ-A-016: Retrying an interrupted export shall reuse the expense ID, export timestamp, JSON name, and image path so retries are idempotent and do not create duplicate receipt images or expense handoffs.
+REQ-A-016: Retrying an interrupted export shall reuse the expense ID, export timestamp, immutable reviewed payload, JSON name, and image path when present so retries do not create duplicate receipt images or handoffs.
 
-REQ-A-017: Before image upload, the app shall idempotently resolve or create the required `receipt_images/YYYY-MM` folder hierarchy. A folder-creation failure shall preserve the local export for retry and shall not publish the final JSON.
+REQ-A-017: Before image upload, the app shall idempotently resolve or create `receipt_images/YYYY-MM`; failure shall preserve retry state without final JSON. Typed exports shall make no image-folder call.
 
-REQ-A-018: When a user confirms an extracted receipt without editing its fields, the exported handoff shall use `extractionStatus: "confirmed"`, including when extraction returned `low_confidence`. Any user edit to a review field shall make the exported status `manual`; retry shall preserve the status saved for that export.
+REQ-A-018: When a user confirms an unchanged image extraction, exported status shall be `confirmed`, including low-confidence extraction. Any review edit shall make status `manual`. Typed-origin expenses shall always use `manual`, regardless of LLM confidence. Retry shall preserve the saved status.
 
-REQ-A-019: When one image contains distinct receipt transactions, the app shall review them separately and publish one Version 2 JSON handoff and paired normalized image per confirmed transaction. Each transaction shall retain its own `confirmed` or `manual` status and retry identity.
+REQ-A-019: When one image contains distinct receipt transactions, the app shall review them separately and retain one Version 2 object and paired normalized image per confirmed transaction. Individual export publishes separate JSON files; Export All places the objects in one array. Each transaction shall retain its own `confirmed` or `manual` status and retry identity.
 
 REQ-A-020: The app shall display a detected device name in Settings, allow a persisted manual override, and include the effective name as `sourceDeviceName` in every new handoff JSON while retaining the stable `sourceDeviceId`.
+
+REQ-A-021: Main shall accept a mixed batch of up to 20 ordered, independently identified image/typed inputs. Multiselect and Add more shall prepare previews without inference, skip duplicate URIs with a message, enforce capacity after picker return, and preserve existing inputs on cancellation.
+
+REQ-A-022: Each item shall default to image input with an unchecked No receipt image checkbox. All no-image source fields (merchant, amount, currency default CAD, date, and notes) shall be optional free-text hints for LLM extraction, with no input data-type, format, or per-field presence requirements. Labels shall suggest what to enter without restricting the information accepted. A user may enter the full expense in any single field, including Merchant or Notes, and leave every other field blank. Only an empty/whitespace-only combined draft, including the untouched CAD default alone, shall block submission. Numeric-only keyboards, amount/currency format checks, and fixed date patterns shall not prevent entering or submitting text. An optional date picker shall not restrict typed dates. Switching modes shall preserve the original draft strings and detach inactive image evidence; source changes shall invalidate unexported results.
+
+REQ-A-023: Extract all shall process only eligible new/changed inputs in a single asynchronous run, snapshotting provider/policy/input revisions. Enforce at most three item requests, on-device concurrency one, and configurable initial remote start spacing 3.5 seconds across inference/recovery/retries. Failed items require explicit retry; no automatic export follows extraction.
+
+REQ-A-024: Stable item/transaction/revision identities shall isolate out-of-order completions, edits, retry, and export. Removal/Cancel remaining/backgrounding/remote consent revocation shall stop pending dispatch and cancel/drain active work without late publication. Completed results shall survive cancellation.
+
+REQ-A-025: Typed extraction shall send all original labeled field strings, including blanks, as data in a text-only LLM request on Extract all, item-level Extract, or explicit Retry extraction, with no image/OCR operations or local source-format parsing. The LLM shall extract exactly one structured expense using the combined information from every field, including Notes, regardless of labels; a blank dedicated field shall not mean the corresponding fact is absent from the draft. Evaluate explicitly supplied arithmetic (for example, `15+50` or `15+50, which is 65 in total` to numeric `totalAmount: 65`), normalize unambiguous dates (for example, `Oct 7 2026` to `receiptDate: "2026-10-07"`) and currency descriptions (for example, `Canadian dollars` to `CAD`) wherever they appear. Use CAD as a default only when no explicit currency is supplied anywhere; conflicting explicit facts shall require user resolution rather than field-label precedence. For a recognizable well-known merchant, the LLM may suggest a typo correction (for example, `Walmrat` to `Walmart`) with the original and suggestion visible for user acceptance; ambiguous or unfamiliar names shall not be replaced with a guessed brand. After extraction, the app shall deterministically validate a nonblank merchant, finite non-negative decimal amount, uppercase three-letter currency code, and real ISO date before export. Preserve source fields/notes separately, including facts extracted from Notes, show normalization/corrections for explicit confirmation, and retain drafts on failure with retry or validated structured manual fallback. Contradictory amounts, ambiguous dates/currencies, impossible dates, and missing facts shall require user resolution; never invent expense facts, add unstated tax/tip, or convert currencies. Source free-text acceptance shall not weaken result/export validation.
+
+REQ-A-026: Room batch metadata/private staged files shall restore recoverable drafts, edited results, order and export identities after process death, expose interrupted work as retryable without resubmission, and clean only unreferenced preparation files. Export-started payloads remain immutable across removal/retry.
+
+REQ-A-027: Main shall offer Export All after extraction/review. Every remaining input must have current successful results and every remaining transaction must pass structured export validation; incomplete, failed, empty, and stale inputs shall block the action with actionable guidance. Already completed exports shall be excluded. Choosing Export All explicitly confirms all remaining reviewed transactions in input/transaction order and publishes one JSON array to OneDrive, preserving each expense ID, source schema, exact notes, and image correlation. Prevent simultaneous extraction/export and duplicate taps. Individual transaction export shall remain available.
+
+REQ-A-028: Combined export shall atomically persist its immutable ordered membership, member snapshots, timestamp and deterministic list path before publication. Upload every referenced receipt JPEG before temporary/final JSON-list commit; a failed member image shall prevent list publication. Retry/restart shall reuse the original list and member IDs/paths, repair interrupted completion state, and never publish members individually. Retry the pending original export before combining additional transactions; published transactions remain immutable.
+
+REQ-A-029: No-image extraction shall use a dedicated text-only prompt separate from receipt-image and OCR prompts. It shall receive all five original source strings together, including blanks, accept natural expense narratives suitable for future voice transcription, and return the same normalized `receipts` array/core expense fields and validation used by image extraction. Typed review metadata may add issues/corrections without changing the expense format. Microphone capture and speech transcription are future work outside this revision.
+
+REQ-A-030: Each expanded no-image item shall show an item-level Extract action before its first attempt and Retry extraction after an attempt or when replacing existing results. It shall submit only that item's original draft through the shared provider snapshot and scheduler. Empty/default-only drafts, provider configuration/verification, image preparation, extraction and export shall disable the action. Edited reviews require replacement confirmation; failed retries preserve drafts/old reviews but block their export. Export-started expenses remain immutable. Confirm and export shall be visible but disabled before results exist; afterward it requires a current successful result, valid structured fields and ready OneDrive access. It shall confirm only that transaction, prevent duplicate taps and retain Retry export/Exported states for saved exports. Extraction shall never export automatically.
 
 ### Model Provider and Extraction
 
@@ -175,7 +199,7 @@ REQ-UI-005: System Back and Up from Settings shall return to the existing Main d
 
 REQ-UI-006: Settings shall provide a persisted, default-off Debug output checkbox. When enabled, Main shall show the raw extraction reply or provider/transport error in a read-only textbox after an extraction attempt, and the exact generated Version 2 handoff JSON in a read-only textbox for each attempted export. Failed uploads shall identify the JSON as not published. Disabling Debug shall hide these fields without changing review or retry state.
 
-REQ-UI-007: After a selected receipt image has loaded and the `REQ-A-002A` preprocessing decision has completed, Main shall show an image-review affordance as a thumbnail or button. Activating it shall display the complete processed image without cropping. The displayed image shall be the same image supplied to extraction: the reduced JPEG when enabled preprocessing reduces a selection larger than 200 KB (204,800 bytes), and otherwise the original selected image. Replacing or clearing the selection shall update or remove the review affordance so a previous receipt is not shown.
+REQ-UI-007: Each prepared image input shall expose a thumbnail opening the complete processed image without cropping. Preview and extraction shall use identical staged bytes, with preprocessing frozen at preparation time. Removing or replacing one image shall update only that group's preview. Selection and review shall make no inference request.
 
 REQ-UI-008: The full-screen selected-receipt image viewer shall support pinch-to-zoom and visible, accessible Zoom in and Zoom out controls. It shall open with the complete image fitted in view, allow panning while zoomed, keep zoom and pan within bounded limits, and reset the view when closed, reopened, or shown for a different image. Zooming shall affect display only; it shall not change the processed image supplied to extraction, review fields, or export data.
 
@@ -183,7 +207,7 @@ REQ-UI-009: Settings shall expose the per-profile Tailscale checkbox only in the
 
 REQ-UI-010: While the app is resumed and an eligible profile is selected, it shall observe VPN changes and check the models endpoint automatically at entry, after VPN detection changes, and again 15 seconds after each completed check. Each passive check shall have a 10-second deadline; connect readiness shall retain its bounded retries. Pausing the app, changing/editing/removing the profile, or revoking permission shall cancel stale checks; pausing shall also unregister network callbacks. Resume shall reset old request/observation state and recheck the current profile. Detection failures shall show unavailable/unknown rather than a false confirmed state. No observation shall automatically connect or disconnect Tailscale.
 
-REQ-UI-011: Main shall provide an accessible Retry extraction action once the selected image is loaded, including after extraction failure. Retry shall reuse the exact retained processed image without reopening the picker or loading/preprocessing it again, snapshot the currently effective provider while respecting remote opt-in/local fallback, retain the image preview, and replace the current reviews and transient debug/export previews. Retry shall be disabled during extraction, export, or provider configuration work. It shall not upload anything or alter persisted export records; an image-load failure shall require choosing an image again.
+REQ-UI-011: Each prepared input shall expose explicit Retry extraction using its retained image bytes or typed draft and a newly resolved permitted provider snapshot. Retry shall replace only that item's unexported results after success, protect edited reviews with confirmation, and retain old results after failure while preventing stale export. Retry shall be disabled during batch extraction/export or provider configuration. Image-load failure requires reselection; retry shall not upload or alter persisted exports.
 
 REQ-UI-012: Main and Settings shall reserve Android's safe drawing insets outside their scrollable viewports so controls remain fully visible and tappable above gesture and three-button navigation bars. Layout shall respond to status bars, display cutouts, side navigation bars and keyboard inset changes, consuming shared insets once while preserving existing content margins.
 
@@ -193,7 +217,7 @@ REQ-UI-013: Settings shall expose accessible Duplicate profile and Load models a
 
 REQ-H-001: The handoff format and final file extension shall be JSON (`.json`). Temporary or incomplete uploads shall use a non-JSON extension such as `.uploading`.
 
-REQ-H-002: The handoff file shall include these required fields:
+REQ-H-002: Each handoff expense object (singleton or combined-list member) shall include these required fields:
 - schemaVersion
 - expenseId
 - createdAt
@@ -204,7 +228,7 @@ REQ-H-002: The handoff file shall include these required fields:
 - currency
 - extractionStatus
 
-REQ-H-003: The handoff file may include these optional fields:
+REQ-H-003: Each handoff expense object may include these optional fields:
 - category
 - paymentMethod
 - taxAmount
@@ -217,7 +241,7 @@ REQ-H-003: The handoff file may include these optional fields:
 - notes
 - rawModelOutput
 
-REQ-H-004: File names shall be unique and sortable, using this pattern:
+REQ-H-004: Individual export file names shall be unique and sortable, using this pattern (combined lists use REQ-H-009):
 
 ```text
 expense_yyyyMMdd_HHmmss_<shortExpenseId>.json
@@ -225,19 +249,25 @@ expense_yyyyMMdd_HHmmss_<shortExpenseId>.json
 
 REQ-H-005: The Android app shall avoid partial file processing by either writing atomically or using a temporary extension until the file is complete.
 
-REQ-H-006: The next handoff schema version shall require `receiptImageRelativePath`, containing the OneDrive-root-relative path of the successfully uploaded normalized JPEG.
+REQ-H-006: Version 2 shall require `receiptImageRelativePath` identifying an existing normalized JPEG with deterministic timestamp/ID correlation. Version 3 shall accept only explicit typed/no-image/manual records with a required null image path; reject inconsistent discriminators and unsupported image combinations.
 
-REQ-H-007: A final handoff JSON shall be a commit marker for the paired export: its referenced receipt image must already exist before the final `.json` becomes visible to Hermes.
+REQ-H-008: Mixed Version 2/typed Version 3 processing shall preserve filename identity, CAD-only rules, safe F/G row selection, duplicate detection, locking, archive/quarantine and idempotency. Typed rows shall clear stale H text/hyperlinks without changing unrelated columns; notes remain in archived handoffs without new workbook mapping.
+
+REQ-H-009: Export All shall publish a nonempty top-level JSON array of existing Version 2/typed Version 3 expense objects as `expense_batch_yyyyMMdd_HHmmss_<shortBatchId>.json`. Every member retains its own UUID, createdAt and deterministic image path; the batch filename identifies the list, not any member. The complete array is a commit marker only after all referenced images exist. Temporary uploads use `.json.uploading`.
+
+REQ-H-007: A final handoff JSON shall be a commit marker: every referenced receipt image must already exist before the singleton or combined-list final `.json` becomes visible to Hermes.
 
 ### Windows Hermes Agent
 
 REQ-W-001: The Hermes agent shall poll the configured OneDrive handoff folder every 5 minutes.
 
-REQ-W-002: The Hermes agent shall inspect only the handoff folder's direct children and process only complete files whose names match `expense_yyyyMMdd_HHmmss_<shortExpenseId>.json`; temporary extensions and archive subfolders shall be ignored.
+REQ-W-002: The Hermes agent shall inspect only the handoff folder's direct children and process complete singleton `expense_yyyyMMdd_HHmmss_<shortExpenseId>.json` or combined `expense_batch_yyyyMMdd_HHmmss_<shortBatchId>.json` files; temporary extensions and archive subfolders shall be ignored.
+
+REQ-W-014: Validate a combined array and all member identities/source contracts before staging any member. Reject malformed lists, duplicate expense IDs, and conflicting existing member files without overwriting data. Expand valid lists into deterministic singleton handoffs using temporary/final staging, then archive the source list separately only after every member is durably staged or already archived. Existing per-expense processing/state, CAD policy, workbook mapping, archive/quarantine and duplicate recovery shall apply unchanged. Dry run shall report members without writes; replay and interrupted expansion shall not create duplicate workbook rows.
 
 REQ-W-003: The Hermes agent shall skip already processed expense ids.
 
-REQ-W-004: The PowerShell action shall validate the Version 2 schema, filename/expense-id correlation, deterministic receipt-image path, paired local image existence, accepted extraction status, and CAD currency before updating Excel.
+REQ-W-004: Before updating Excel, the processor shall validate filename/expense-ID correlation, expense fields/status and CAD policy. Version 2 additionally requires its deterministic path and real paired JPEG. Version 3 requires the explicit typed/no-image/manual branch in REQ-H-006; no other Version 3 shape may bypass image validation.
 
 REQ-W-005: The Hermes agent shall log success and failure for each handoff file.
 
@@ -275,7 +305,7 @@ REQ-X-005: The Windows side shall add one expense row per accepted handoff file.
 
 REQ-X-006: The PowerShell action shall use the first row from 12 through 100 where both F and G are empty. It shall not insert or reorder rows, overwrite a partially populated row, or disturb existing formulas, formatting, and layout.
 
-REQ-X-007: For an accepted handoff, the action shall write numeric `totalAmount` to F, write `<merchant> MMM dd` to G using invariant English dates and the approved `Supermarket` to `Mart` wording rule, and add a relative clickable receipt-image hyperlink in H.
+REQ-X-007: For an accepted handoff, write numeric `totalAmount` to F and `<merchant> MMM dd` to G with invariant English dates and approved `Supermarket` to `Mart` wording. Version 2 adds a relative image hyperlink in H; typed Version 3 clears H text/hyperlinks on that safe row. Notes shall not introduce another column mapping.
 
 REQ-X-008: The action shall preserve column E, column O's row formula, and all unrelated cells. If a selected row lacks the established transaction formatting or row-relative formula pattern, the action shall extend the pattern without copying another transaction's values and shall abort if it cannot do so safely.
 
@@ -423,13 +453,13 @@ AC-002: The handoff file validates against the agreed schema.
 
 AC-003: The Windows agent detects the handoff file within one polling cycle after OneDrive sync completes.
 
-AC-004: An accepted CAD handoff fills exactly one safe row from 12-100 in the correct monthly sheet, with numeric amount in F, merchant/date text in G, and a working relative receipt-image hyperlink in H while existing E/O behavior and unrelated workbook content remain intact.
+AC-004: An accepted CAD handoff fills one safe row from 12-100 in the correct monthly sheet with numeric amount in F and merchant/date in G. Version 2 adds a working relative image hyperlink in H; typed Version 3 clears H text/hyperlinks. Existing E/O behavior and unrelated cells remain intact.
 
 AC-005: Reprocessing the same handoff file does not create a duplicate row.
 
 AC-006: Invalid handoff files are preserved in `receipt_jsons_error`, ambiguous and non-CAD files are preserved in `receipt_jsons_review`, each has an actionable reason, and neither changes the workbook.
 
-AC-007: The workflow still succeeds when the optional external `receiptPhotoLink` is absent because the required `receiptImageRelativePath` supplies the Excel hyperlink target.
+AC-007: Image-backed workflow succeeds without optional `receiptPhotoLink` because required Version 2 `receiptImageRelativePath` supplies H. Typed Version 3 succeeds with explicit null image path and empty H.
 
 AC-008: A user can open Settings, select the local provider or a configured OpenAI-compatible provider, choose a model id, and see which provider will be used for the next extraction.
 
@@ -443,13 +473,13 @@ AC-012: Disabling remote access, deleting the selected profile, or resolving a m
 
 AC-013: After a clean install or upgrade from the first multi-profile release, the saved-profile list contains the bundled LM Studio Gemma configuration alongside profiles such as OpenRouter, unless an equivalent or previously migrated LM Studio profile already exists.
 
-AC-014: Exporting a confirmed expense uploads a normalized JPEG below 200 KB to `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM/YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg` and places that exact relative path in the handoff JSON.
+AC-014: Exporting a confirmed image-backed expense uploads a normalized JPEG below 200 KB to `Documents/2_Others/Expenses_finance/receipt_images/YYYY-MM/YYYYMMDD_HHmmss_receipt_<shortExpenseId>.jpg` and places that exact path in Version 2 JSON. Typed Version 3 publishes no image and requires a null path.
 
-AC-015: The receipt image is completely uploaded before the final JSON appears in the `logs` folder; a failed image upload leaves no processable final JSON and presents a retry path.
+AC-015: For Version 2 the image finishes before final JSON appears; image failure leaves no processable JSON and exposes retry. Version 3 skips image operations and retains temporary/final JSON commit ordering.
 
-AC-016: Retrying the same expense export reuses its image and JSON paths and does not create duplicate OneDrive files.
+AC-016: Retrying an expense reuses its immutable identity/payload/JSON path and image path when present, without duplicate files.
 
-AC-017: If the monthly receipt-image folder does not exist, the app creates it safely before upload; folder-creation failure leaves the export retryable and exposes no final JSON.
+AC-017: Version 2 creates missing monthly image folders safely before upload; failure retains retry without final JSON. Version 3 makes no image-folder call.
 
 AC-018: Given an itemized receipt without tax or tip and a finalized receipt for the same transaction with tax and tip, extraction returns one expense whose `totalAmount` is the finalized amount rather than the subtotal or the sum of both receipt totals. Ambiguous receipt pairs are flagged `low_confidence` for user review.
 
@@ -479,7 +509,7 @@ AC-030: Confirming an unchanged `low_confidence` receipt produces JSON with `ext
 
 AC-031: A JSON Schema extraction request is valid JSON with an outer receipts array schema; the provider check and receipt extraction both work with their respective schemas. Debug output is hidden by default, exposes the raw response or error when enabled, and shows each generated export JSON with its publication state.
 
-AC-032: After image selection and preprocessing, Main exposes a review thumbnail or button that opens the complete processed receipt image and can be dismissed with Back or a visible close action. With oversized-image reduction enabled, an input larger than 200 KB previews the same sub-200-KB JPEG bytes used for extraction; when reduction is disabled or unnecessary, it previews the original selected bytes. Selecting another receipt replaces the preview and a failed or cleared selection leaves no stale image.
+AC-032: Each selected image is prepared without inference and exposes its complete processed preview with Close/Back and Remove. Enabled oversized reduction previews the exact sub-200-KB JPEG sent on Extract all; otherwise original bytes are retained. Appending/removing images preserves other item identities and previews.
 
 AC-033: The selected-image viewer opens at fit scale. Pinching and the labeled Zoom in/Zoom out controls change magnification within the defined range; dragging moves the image only while zoomed and cannot leave it lost offscreen. The controls reflect their minimum/maximum limits, Close and Back work at any zoom, and reopening or selecting another image restores fit scale without changing extraction, review, or export state.
 
@@ -487,13 +517,41 @@ AC-034: Enabling the remote-profile checkbox persists through editing, restart a
 
 AC-035: Main displays VPN detected, no VPN detected for this app, or VPN detection unavailable separately from models endpoint checking/reachable/unavailable. External VPN changes update detection and trigger a fresh endpoint check without commands; periodic checks detect endpoint outages/recovery. A reachable LAN endpoint with no detected VPN does not turn the command switch on. Backgrounding stops checks and network callbacks; returning refreshes current observations. The reusable checker supports custom URL/path/key/timeouts, empty model lists, HTTP/invalid-response errors and prompt cancellation, with no credential leakage or receipt transmission.
 
-AC-036: After selecting and loading an image, Retry extraction sends that same processed image again with the provider selected at retry activation. Repeated taps while extracting or exporting start no extra request; changing provider while retry runs does not change its snapshot. A provider failure retains the image, manual-entry fallback, and retry action. Successful retry replaces prior edits/results/debug previews with the new receipt reviews, preserves the selected image and source URI, and makes no export request. Choosing another image makes subsequent retries use that image.
+AC-036: Item retry uses retained processed bytes or the typed draft with the provider selected at retry activation. Repeated taps while busy start no extra request; provider changes do not mutate active snapshots. Failure retains source and old results; successful confirmed replacement updates only that item's unexported reviews. Exported identities remain immutable and no upload follows retry.
 
 AC-037: On Main, the receipt selection, extraction retry and export controls can be scrolled completely above Android navigation UI, including with Debug output enabled. Settings content uses the same safe viewport. Insets update when the keyboard or navigation configuration changes, and a nested inset-aware child does not apply the same system spacing twice.
 
 AC-038: Duplicate a profile containing a stored key and a Tailscale flag, restart, and observe identical provider settings with the exact copy name and independent identity. Editing, deleting, or clearing either credential affects only that profile; no remote request/command or selection change occurs.
 
 AC-039: Load models for a new and an existing profile, choose an ID, save, and verify the saved model is used for the next extraction. Empty/error responses retain manual input; changing endpoint/credential, closing the editor, or leaving Settings prevents stale results from replacing current state. No receipt data or inference is sent by discovery.
+
+AC-040: Select five images, inspect them without inference, remove through thumbnail and full viewer, append two images, and retain unaffected identities/order/processed bytes. Duplicate URI/over-capacity additions explain rejection; picker cancellation changes nothing.
+
+AC-041: Six delayed fake-provider items with concurrency three obey 3.5-second start spacing and never exceed three in flight, including recovery/retries. Out-of-order results and an isolated failure remain in their own groups; repeated Extract all creates one run and later runs process new/changed items only.
+
+AC-042: Remove queued/active items, cancel remaining, edit sources and retry, then deliver late callbacks: removed/stale attempts cannot publish or export. Collapse/expand, rotation and Main/Settings navigation retain state; process restoration never automatically submits data.
+
+AC-043: An entirely typed and a mixed batch retain CAD defaults, original source strings, notes and item-level mode-switch drafts. Every no-image field accepts words, arithmetic and punctuation without source type/format or per-field presence validation; only an empty/whitespace combined draft or the untouched CAD default alone blocks submission. Typed requests contain no image, preserve all labeled strings including blanks as data, yield exactly one expense using evidence from any field, and show original fields alongside normalized results/corrections. Invalid/negative/non-finite structured amounts, impossible/non-ISO dates, malformed output currency, contradictory or ambiguous facts, multiple results and model outage block export while preserving drafts and allowing correction/retry or validated manual fallback.
+
+AC-044: Migrate Version 2 pending/completed export rows without losing IDs/status/paths and retry them unchanged. Typed Version 3 export skips image preparation/folder/upload and preserves manual provenance/notes with temporary/final JSON commit.
+
+AC-045: On disposable workbooks, mixed V2/V3 fills F/G independently, keeps image hyperlinks and leaves typed H empty even if stale text/hyperlinks existed. Malformed V3, non-CAD, duplicates and replay preserve quarantine/archive/state guarantees.
+
+AC-046: Verify accessible group/removal/editor controls, narrow-screen/keyboard/system insets and bounded previews at 20 inputs. Record actual emulator/device UI execution separately from compilation; benchmark local model/server concurrency before changing policy defaults.
+
+AC-047: Enter amount `15+50` and `15+50, which is 65 in total`, date `Oct 7 2026`, and currency `Canadian dollars` in no-image items. Repeat with the entire text `Walmrat, Oct 7 2026, 15+50 Canadian dollars` solely in Merchant and solely in Notes, leaving other fields blank, and with facts distributed across mismatched field labels. Extract all shall submit the original strings without local parsing or per-field rejection; controlled provider responses shall produce numeric `totalAmount: 65`, `receiptDate: "2026-10-07"`, and `currency: "CAD"` for review, with a visible `Walmrat` → `Walmart` suggestion requiring user acceptance. Ambiguous/unfamiliar merchant names shall remain unchanged or require clarification. Verify explicit currency anywhere overrides the CAD default and conflicting explicit facts require resolution. Confirmation exports validated normalized values through manual Version 3 while retaining the original draft and exact notes, even when Notes supplied all expense facts. Unit tests shall cover combined-draft eligibility, request serialization, result validation, failure, retry and restoration; Compose tests shall verify unrestricted text entry, blank dedicated fields and suggestion review. Live provider interpretation shall be recorded separately from fake-provider contract tests.
+
+AC-048: A natural narrative such as `I paid 65 Canadian dollars at Walmart on October 7, 2026` in any no-image field shall use the dedicated text prompt, preserve all original strings, and return the same normalized receipt fields as equivalent image extraction. Verify with controlled provider responses and retain strict output/export validation; live model interpretation is separate verification.
+
+AC-049: In a mixed batch containing multiple image transactions and a typed expense, Export All is disabled until every remaining input/result is ready/current/valid and OneDrive is ready. Clicking it once confirms and sends one ordered JSON list; all referenced images precede list commit, typed members perform no image operations, and already completed transactions are excluded. Failure/restart/member retry preserves immutable membership/IDs/paths; extra new items cannot silently join a pending export. Verify Room migration/reopen, partial image/JSON failure, commit recovery, duplicate taps and explicit retry.
+
+AC-050: Windows validates and expands mixed V2/V3 arrays atomically with respect to validation, then applies existing singleton processing. Exercise dry run, malformed members, duplicate IDs, conflicting member files, interrupted staging, replay and per-member quarantine. No production workbook or scheduled job changes are part of this implementation.
+
+AC-051: Create two no-image items. Before extraction, each shows Extract and a disabled Confirm and export. Default-only CAD/blank drafts disable Extract; expense text in any field enables it. Extract one item and verify only its draft is submitted, the other item is unchanged, and repeated busy taps start no extra request. Completion/failure offers Retry extraction; retry protects edits, preserves the source, and cannot export failed or stale results. Confirm and export requires current valid results and ready OneDrive, targets the stable item/transaction IDs once, and preserves saved export retry/completion states. Unit and emulator UI tests shall cover these transitions; provider/physical-device checks are separate.
+
+## No-image item actions implementation verification
+
+✅ Done on 2026-10-08: Implemented `REQ-A-030` and `AC-051`, retaining `REQ-A-022..025`, `REQ-UI-011`, `AC-036`, `AC-043`, and `AC-047` guards. All 60 shared tests and 217 Android unit tests pass, including six new Robolectric Compose button regressions and one targeted workflow extraction/retry regression. Debug APK assembly succeeds. See the [batch plan verification record](9.multiple-and-no-image-support-plan.md) for emulator execution evidence. Live provider and physical-device validation remain pending.
 
 ## System-bar layout implementation verification
 

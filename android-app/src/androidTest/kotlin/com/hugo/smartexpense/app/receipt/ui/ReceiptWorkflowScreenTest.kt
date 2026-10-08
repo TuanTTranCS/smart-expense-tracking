@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -109,7 +110,7 @@ class ReceiptWorkflowScreenTest {
         compose.onNodeWithText("Settings").assertIsDisplayed()
         compose.onNodeWithText("Provider for next receipt").assertIsDisplayed()
         compose.onNodeWithText("Verify profile").assertIsDisplayed()
-        compose.onNodeWithText("Choose receipt").assertIsDisplayed()
+        compose.onNodeWithText("Choose images").assertIsDisplayed()
         compose.onNodeWithContentDescription("Review selected receipt image").assertDoesNotExist()
         compose.onNodeWithText("Remote providers disabled (private local fallback)").assertDoesNotExist()
         compose.onNodeWithText("Receipt image preprocessing").assertDoesNotExist()
@@ -166,7 +167,7 @@ class ReceiptWorkflowScreenTest {
         }
 
         compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithContentDescription("Review selected receipt image").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Review selected receipt image").performClick()
+        compose.onNodeWithContentDescription("Review selected receipt image").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Selected receipt image").assertIsDisplayed()
         compose.onNodeWithContentDescription("Zoom in").assertIsEnabled()
         compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
@@ -179,9 +180,9 @@ class ReceiptWorkflowScreenTest {
         compose.onNodeWithContentDescription("Selected receipt image").assertIsDisplayed()
         compose.onNodeWithContentDescription("Close selected receipt image").performClick()
         compose.onNodeWithContentDescription("Selected receipt image").assertDoesNotExist()
-        compose.onNodeWithText("Corner Store").assertIsDisplayed()
+        compose.onNodeWithText("Corner Store").performScrollTo().assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Review selected receipt image").performClick()
+        compose.onNodeWithContentDescription("Review selected receipt image").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Zoom in").performClick()
         Espresso.pressBack()
@@ -189,8 +190,8 @@ class ReceiptWorkflowScreenTest {
             compose.onAllNodesWithContentDescription("Selected receipt image").fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithContentDescription("Selected receipt image").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Review selected receipt image").assertIsDisplayed()
-        compose.onNodeWithText("Corner Store").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Review selected receipt image").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Corner Store").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun replacementDismissesViewerAndRetainsOnlyCurrentPreview() {

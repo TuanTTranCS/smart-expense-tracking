@@ -1,6 +1,10 @@
 package com.hugo.smartexpense.app.receiptexport
 
 import com.hugo.smartexpense.app.ReceiptReviewState
+import com.hugo.smartexpense.app.ReceiptSourceType
+import kotlinx.coroutines.CancellationException
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -8,7 +12,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ReceiptExportControllerTest {
     @Test
     fun separateTransactionsGetSeparateJsonFilesAndStatuses() = runTest {
@@ -133,6 +140,124 @@ class ReceiptExportControllerTest {
         assertEquals("confirmed", failed.extractionStatus)
         assertEquals("confirmed", succeeded.extractionStatus)
         assertTrue(succeeded.toVersion2Json().contains("\"extractionStatus\":\"confirmed\""))
+    }
+
+    @Test
+    fun typedExportsNeverTouchImagesAndRetryTheImmutableReviewedPayload() = runTest {
+        val repository = FakeRepository()
+        val published = mutableListOf<ReceiptExportRecord>()
+        val controller = ReceiptExportController(
+            repository, ReceiptExportImagePreparer { _, _ -> error("Typed export prepared an image") },
+            ReceiptExportImageReader { error("Typed export read an image") },
+            ReceiptExportPublisher { record, bytes ->
+                assertNull(bytes)
+                published += record
+                if (published.size == 1) throw ReceiptExportException(ReceiptExportFailure.NETWORK_UNAVAILABLE)
+            }, { "device" },
+            now = { ZonedDateTime.parse("2026-09-06T14:05:07-07:00") },
+            newExpenseId = { "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" },
+        )
+        val notes = "  Original \"notes\"\nwith tab\tand space  "
+        val failed = controller.start(validReview().copy(sourceType = ReceiptSourceType.TYPED,
+            sourceImageUri = "content://detached-image", notes = notes))
+        val retried = controller.retry(failed.expenseId)
+        assertEquals(3, retried.schemaVersion)
+        assertEquals("manual", retried.extractionStatus)
+        assertEquals(notes, retried.notes)
+        assertNull(retried.sourceImageUri)
+        assertNull(retried.receiptImageRelativePath)
+        assertEquals(published[0], published[1])
+        val json = retried.toHandoffJson()
+        assertTrue(json.contains("\"inputSource\":\"typed\""))
+        assertTrue(json.contains("\"hasReceiptImage\":false"))
+        assertTrue(json.contains("\"receiptImageRelativePath\":null"))
+        assertEquals(notes, org.json.JSONObject(json).getString("notes"))
+        assertFailsWith<IllegalArgumentException> { retried.toVersion2Json() }
+    }
+
+    @Test
+    fun imageProvenanceWithoutAnImageIsRejectedRatherThanDowngraded() = runTest {
+        val controller = ReceiptExportController(FakeRepository(),
+            ReceiptExportImagePreparer { _, _ -> error("unused") },
+            ReceiptExportImageReader { error("unused") },
+            ReceiptExportPublisher { _, _ -> error("unused") }, { "device" })
+        assertFailsWith<IllegalArgumentException> { controller.start(validReview().copy(sourceImageUri = "")) }
+        assertFailsWith<IllegalArgumentException> { sampleRecord().copy(schemaVersion = 3).toHandoffJson() }
+    }
+
+    @Test
+    fun freeTextExtractionExportsNormalizedVersion3WithExactOriginalNotes() = runTest {
+        val notes="  Walmrat, Oct 7 2026, 15+50 Canadian dollars\n"
+        val draft=com.hugo.smartexpense.extraction.TypedExpenseDraft(currency="",notes=notes)
+        val client=object:com.hugo.smartexpense.extraction.ReceiptModelClient {
+            override fun supportsDirectImageInput()=false
+            override fun extractFromReceiptImage(receiptImage:com.hugo.smartexpense.extraction.ReceiptImage,prompt:String):String=error("No image")
+            override fun extractFromReceiptText(receiptText:String,prompt:String):String {
+                assertEquals(notes,org.json.JSONObject(receiptText).getString("notes"))
+                return """{"receipts":[{"merchantName":"Walmart","receiptDate":"2026-10-07","totalAmount":65,"currency":"CAD","extractionStatus":"low_confidence","confidence":0.9,"merchantLocation":null,"issues":[],"suggestedCorrections":["Walmrat -> Walmart"]}]}"""
+            }
+        }
+        val normalized=(com.hugo.smartexpense.extraction.ReceiptExtractionPipeline(client).reviewTypedExpense(draft) as com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult.Success).result
+        val repository=FakeRepository()
+        val controller=ReceiptExportController(repository,
+            ReceiptExportImagePreparer { _,_->error("No image preparation") }, ReceiptExportImageReader { error("No image read") },
+            ReceiptExportPublisher { _,bytes->assertNull(bytes) }, { "device" })
+        val record=controller.start(ReceiptReviewState(merchantName=normalized.merchantName,receiptDate=normalized.receiptDate.toString(),totalAmount=normalized.totalAmount.toPlainString(),currency=normalized.currency,notes=normalized.notes,sourceType=ReceiptSourceType.TYPED,manualEntryRequired=false,extractionStatus="low_confidence"))
+        val json=org.json.JSONObject(record.toHandoffJson())
+        assertEquals(3,json.getInt("schemaVersion"));assertEquals("manual",json.getString("extractionStatus"))
+        assertEquals("Walmart",json.getString("merchantName"));assertEquals(65,json.getInt("totalAmount"))
+        assertEquals("2026-10-07",json.getString("receiptDate"));assertEquals("CAD",json.getString("currency"))
+        assertEquals(notes,json.getString("notes"));assertEquals(notes,draft.notes)
+    }
+
+    @Test
+    fun invalidStructuredTypedValuesNeverPersistOrPublish() = runTest {
+        val repository=FakeRepository()
+        val controller=ReceiptExportController(repository,
+            ReceiptExportImagePreparer { _,_->error("unused") }, ReceiptExportImageReader { error("unused") },
+            ReceiptExportPublisher { _,_->error("Invalid review was published") }, { "device" })
+        val typed=validReview().copy(sourceType=ReceiptSourceType.TYPED)
+        listOf(typed.copy(totalAmount="15+50"),typed.copy(totalAmount="-1"),typed.copy(totalAmount="NaN"),
+            typed.copy(receiptDate="Oct 7 2026"),typed.copy(receiptDate="2026-02-30"),typed.copy(merchantName=""),typed.copy(currency="Canadian dollars")).forEach { invalid->
+            assertFailsWith<IllegalArgumentException> { controller.start(invalid) }
+            assertNull(repository.value)
+        }
+    }
+
+    @Test
+    fun exportCancellationPropagatesAndRetainsRetryIdentity() = runTest {
+        val repository = FakeRepository()
+        val controller = ReceiptExportController(repository,
+            ReceiptExportImagePreparer { _, _ -> PreparedReceiptImage("local.jpg", 3) },
+            ReceiptExportImageReader { byteArrayOf(1, 2, 3) },
+            ReceiptExportPublisher { _, _ -> throw CancellationException("cancelled") }, { "device" })
+        var visibleIdentity: String? = null
+        assertFailsWith<CancellationException> {
+            controller.start(validReview()) { saved -> visibleIdentity = saved.expenseId }
+        }
+        assertEquals(repository.value!!.expenseId, visibleIdentity)
+        assertEquals(ReceiptExportStatus.READY, repository.value!!.status)
+        assertNull(repository.value!!.failure)
+    }
+
+    @Test
+    fun restartingWithStableTransactionIdentityResumesSavedPayloadInsteadOfCreatingAnotherExport() = runTest {
+        val repository = FakeRepository()
+        var publishCount = 0
+        val controller = ReceiptExportController(repository,
+            ReceiptExportImagePreparer { _, _ -> PreparedReceiptImage("local.jpg", 3) },
+            ReceiptExportImageReader { byteArrayOf(1, 2, 3) },
+            ReceiptExportPublisher { _, _ -> if (publishCount++ == 0) throw CancellationException() },
+            { "device" }, newExpenseId = { error("Stable transaction must supply identity") })
+        val identity = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        assertFailsWith<CancellationException> { controller.startWithIdentity(validReview(), identity) }
+        val saved = repository.value!!
+        val resumed = controller.startWithIdentity(validReview().copy(merchantName = "Later edit"), identity)
+        assertEquals(identity, resumed.expenseId)
+        assertEquals(saved.merchantName, resumed.merchantName)
+        assertEquals(saved.createdAt, resumed.createdAt)
+        assertEquals(saved.jsonRelativePath, resumed.jsonRelativePath)
+        assertEquals(ReceiptExportStatus.EXPORTED, resumed.status)
     }
 
     private fun validReview() = ReceiptReviewState(

@@ -45,6 +45,8 @@ fun SettingsScreen(
     onExportProfiles: () -> Unit,
     onImportProfiles: () -> Unit,
     onNavigateBack: () -> Unit,
+    onBatchMaxConcurrencyChange: (Int) -> Unit = {},
+    onBatchStartSpacingMillisChange: (Long) -> Unit = {},
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, profilesViewModel) {
@@ -86,6 +88,28 @@ fun SettingsScreen(
             onImportProfiles = onImportProfiles,
         )
         Text("Receipt image preprocessing", style = MaterialTheme.typography.headlineSmall)
+        Text("Batch processing", style = MaterialTheme.typography.headlineSmall)
+        Text("Remote requests: choose 1–3 concurrent expenses. On-device processing always uses one.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (1..3).forEach { count ->
+                TextButton(onClick = { onBatchMaxConcurrencyChange(count) }) {
+                    Text(if (settings.batchMaxConcurrency == count) "$count ✓" else "$count")
+                }
+            }
+        }
+        var spacing by remember(settings.batchStartSpacingMillis) { mutableStateOf(settings.batchStartSpacingMillis.toString()) }
+        OutlinedTextField(
+            value = spacing,
+            onValueChange = { value ->
+                spacing = value
+                value.toLongOrNull()?.takeIf { it in 0..60_000 }?.let(onBatchStartSpacingMillisChange)
+            },
+            label = { Text("Minimum request start interval (milliseconds)") },
+            supportingText = { Text("Default 3500 ms. Match concurrency to your server's prediction capacity. On-device has no fixed delay.") },
+            isError = spacing.toLongOrNull()?.let { it !in 0..60_000 } != false,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row {
             Checkbox(
                 checked = settings.reduceOversizedImages,

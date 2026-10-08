@@ -104,13 +104,49 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    ReceiptExtractionController(
-                        imageLoader = imageLoader,
-                        extractor = PipelineReceiptExtractor(ReceiptExtractionPipeline(client)),
-                    ).extractLoadedImage(image).reviews
+                    when (val result = ReceiptExtractionPipeline(client).extract(image)) {
+                        is com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult.Success -> result.results.map { r -> ReceiptReviewState(
+                            receiptDate = r.receiptDate.toString(), merchantName = r.merchantName, totalAmount = r.totalAmount.toPlainString(), currency = r.currency,
+                            notes = r.notes, extractionStatus = r.extractionStatus.wireName(), confidence = r.confidence?.toPlainString().orEmpty(), merchantLocation = r.merchantLocation.orEmpty(),
+                            message = "Review and correct every field before export. " + (r.issues + r.suggestedCorrections).joinToString(" "), manualEntryRequired = false,
+                            rawModelOutput = if (settingsRepository.settings.value.debugOutputEnabled) r.rawModelOutput else "",
+                        ) }
+                        is com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult.Failed -> throw com.hugo.smartexpense.app.receipt.ui.BatchExtractionFailure(result.errors.joinToString(" "), when (val parsed = result.attempts.lastOrNull()?.parseResult) {
+                            is com.hugo.smartexpense.extraction.ParseResult.Invalid -> parsed.rawOutput
+                            is com.hugo.smartexpense.extraction.ParseResult.Valid -> parsed.value.rawModelOutput
+                            null -> ""
+                        })
+                    }
                 },
-                startExport = exportController::start,
+                prepareImage = { uri, reduce -> imageLoader.load(uri, reduce) },
+                batchStore = com.hugo.smartexpense.app.receipt.ui.AndroidPreparedBatchStore(this),
+                reviewTyped = { draft, profile ->
+                    val client = if (profile != null) remoteClientFactory.create(profile) else {
+                        when (val readiness = localReadinessService.check()) {
+                            is LocalModelReadinessResult.Ready -> localClientFactory.create()
+                            is LocalModelReadinessResult.NotReady -> error(readiness.reason)
+                        }
+                    }
+                    when (val result = ReceiptExtractionPipeline(client).reviewTypedExpense(com.hugo.smartexpense.extraction.TypedExpenseDraft(draft.merchant, draft.amount, draft.currency, draft.date, draft.notes))) {
+                        is com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult.Success -> result.results.map { r -> ReceiptReviewState(
+                            receiptDate = r.receiptDate.toString(), merchantName = r.merchantName, totalAmount = r.totalAmount.toPlainString(), currency = r.currency,
+                            notes = r.notes, sourceType = ReceiptSourceType.TYPED, extractionStatus = r.extractionStatus.wireName(), confidence = r.confidence?.toPlainString().orEmpty(),
+                            message = (r.issues + r.suggestedCorrections).joinToString(" ").ifBlank { "Review normalized typed expense before export." }, manualEntryRequired = false,
+                            rawModelOutput = if (settingsRepository.settings.value.debugOutputEnabled) r.rawModelOutput else "",
+                        ) }
+                        is com.hugo.smartexpense.extraction.ReceiptExtractionPipelineResult.Failed -> throw com.hugo.smartexpense.app.receipt.ui.BatchExtractionFailure(result.errors.joinToString(" "), when (val parsed = result.attempts.lastOrNull()?.parseResult) {
+                            is com.hugo.smartexpense.extraction.ParseResult.Invalid -> parsed.rawOutput
+                            is com.hugo.smartexpense.extraction.ParseResult.Valid -> parsed.value.rawModelOutput
+                            null -> ""
+                        })
+                    }
+                },
+                startExport = { exportController.start(it) },
+                startExportWithIdentity = { review, transactionId, saved -> exportController.startWithIdentity(review, transactionId, saved) },
                 retryExport = exportController::retry,
+                exportReviewedBatch = { reviews, saved -> exportController.startBatch(reviews, saved) },
+                loadExportBatchRecords = exportController::batchRecordsForExpense,
+                loadSavedExportRecord = exportController::savedRecordForExpense,
             )
         }
 
