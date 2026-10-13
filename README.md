@@ -26,6 +26,7 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 - Collapse input groups and retry one failed input while retaining the other results and stable export identities.
 - Review each distinct transaction separately, correct fields when needed, and export low-confidence receipts as `confirmed` or corrected receipts as `manual`.
 - Keep receipt work on Main, with provider, OneDrive, image-preprocessing, and device-name settings in Settings.
+- Main and Settings follow system light/dark appearance and Android 12+ dynamic colors, with readable receipt cards, bundled Inter/Roboto Mono fonts and accessible settings rows.
 
 ### 2. Extract with a provider you control
 

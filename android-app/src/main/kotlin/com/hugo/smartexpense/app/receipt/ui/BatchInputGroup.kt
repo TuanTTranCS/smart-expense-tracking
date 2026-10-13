@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.hugo.smartexpense.app.ReceiptReviewState
 import com.hugo.smartexpense.extraction.ReceiptImage
 import kotlinx.coroutines.Dispatchers
@@ -27,12 +28,14 @@ internal fun BatchInputGroup(
     extractionAvailable: Boolean = true,
 ) {
     var confirmRetry by remember(item.itemId) { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { onExpand(item.itemId) }, modifier = Modifier.weight(1f)) { Text("${if (item.expanded) "Collapse" else "Expand"} ${if (item.noImage) "Typed expense" else "Image"} $ordinal / ${item.status.name.lowercase()} / ${item.transactions.size} transactions") }
+                TextButton(onClick = { onExpand(item.itemId) }, modifier = Modifier.weight(1f)) { Text("${if (item.expanded) "Collapse" else "Expand"} ${if (item.noImage) "Typed expense" else "Image"} $ordinal", style = MaterialTheme.typography.titleMedium) }
                 TextButton(onClick = { onRemove(item.itemId) }, enabled = !exporting, modifier = Modifier.semantics { contentDescription = "Remove ${if (item.noImage) "item" else "image"} $ordinal" }) { Text("×") }
             }
+            ReceiptStatusBadge(item.status.name.lowercase().replaceFirstChar { it.uppercase() }, ready = item.status == BatchItemStatus.SUCCEEDED, failed = item.status == BatchItemStatus.FAILED)
+            Text("${item.transactions.size} transactions", style = MaterialTheme.typography.bodySmall)
             if (item.expanded) {
                 val editable = !running && !exporting && !item.immutable
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -77,6 +80,7 @@ internal fun BatchInputGroup(
                     Text("Extract and review this expense before confirming and exporting.", style = MaterialTheme.typography.bodySmall)
                 }
                 item.transactions.forEach { tx -> key(tx.id) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     if (tx.revision != item.sourceRevision) Text("Source changed. Reprocess before exporting.")
                     if (debug && tx.review.rawModelOutput.isNotBlank()) DebugOutputField("Raw extraction response", tx.review.rawModelOutput)
                     ReceiptReviewEditor(tx.review, exporting, canExport && !running && item.status == BatchItemStatus.SUCCEEDED && tx.revision == item.sourceRevision,

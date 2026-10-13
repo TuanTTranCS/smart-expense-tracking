@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Surface
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
@@ -16,7 +15,7 @@ internal fun SmartExpenseAppContent(
     contentWindowInsets: WindowInsets = WindowInsets.safeDrawing,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme {
+    SmartExpenseTheme {
         Surface(modifier.fillMaxSize()) {
             // Reserve system UI space outside the scroll viewport and consume it once
             // for both destinations. safeDrawing also covers display cutouts and the IME.

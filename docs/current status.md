@@ -7,6 +7,8 @@
 
 Last updated: 2026-10-12
 
+- ✅ Done (2026-10-12): Refined Main and Settings with semantic Material 3 dynamic/system light-dark theming, bundled Inter/Roboto Mono, padded receipt/status cards, grouped settings with dividers/icons, wrapping actions and 48dp controls. Preserved workflow/provider state and callbacks. **87 shared/264 Android unit tests**, **26 affected emulator tests**, debug assembly and device-test compilation pass; light/dark visual inspection and independent review complete. Physical daylight legibility remains device acceptance, not a software contrast guarantee. See [UI verification](11.adaptive-ui-verification.md).
+
 ## Overall Status
 
 ✅ Done (2026-10-12): Hugo confirmed **Verify, receipt-photo extraction and typed-expense extraction worked on Pixel 7** for [10a](10a.mobile-server-companion-plan.md) and [10b](10b.mobile-server-expense-app-integration-plan.md). Both plans, verification records, Gap 14, goal/PLAN/requirements and README record this user-reported paired phone verification, superseding blanket phone-verification/paired-photo Pending statements. Offline use, cancellation/retry/native drain, accuracy/latency/memory and background acceptance remain unconfirmed; installed build/model details were not supplied. Documentation only; existing unit/build evidence is unchanged. Generic external-app compatibility remains a separate companion change.

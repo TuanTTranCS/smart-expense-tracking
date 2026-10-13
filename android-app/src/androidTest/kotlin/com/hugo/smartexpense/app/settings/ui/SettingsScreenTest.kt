@@ -68,7 +68,7 @@ class SettingsScreenTest {
 
         compose.onNodeWithText("Settings").assertIsDisplayed()
         compose.onNodeWithText("Model Selector").assertIsDisplayed()
-        compose.onNodeWithText("Receipt image preprocessing").assertIsDisplayed()
+        compose.onNodeWithText("Receipt image preprocessing").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Debug output").performScrollTo().performClick()
         assertEquals(true, debugEnabled)
         compose.onNodeWithText("Choose receipt").assertDoesNotExist()

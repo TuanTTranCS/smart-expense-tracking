@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Color
+import com.hugo.smartexpense.app.ui.ReceiptFontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -62,6 +70,7 @@ import com.hugo.smartexpense.extraction.ModelProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReceiptWorkflowScreen(
     profileState: ModelProfilesUiState,
@@ -94,31 +103,36 @@ fun ReceiptWorkflowScreen(
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Smart Expense", style = MaterialTheme.typography.headlineMedium)
             TextButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.semantics { contentDescription = "Open settings" },
             ) { Text("Settings") }
         }
-        CompactProviderSelector(
-            state = profileState,
-            onSelectLocal = onSelectLocal,
-            onSelectRemote = onSelectRemote,
-        )
-        val selectedId = profileState.selectedEffectiveProviderId()
-        com.hugo.smartexpense.app.tailscale.TailscaleControl(profileState, onTailscaleRequest)
-        profileState.verification?.takeIf { it.providerId == selectedId }?.let {
-            ProviderVerificationMessage(it)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                CompactProviderSelector(
+                    state = profileState,
+                    onSelectLocal = onSelectLocal,
+                    onSelectRemote = onSelectRemote,
+                )
+                val selectedId = profileState.selectedEffectiveProviderId()
+                com.hugo.smartexpense.app.tailscale.TailscaleControl(profileState, onTailscaleRequest)
+                profileState.verification?.takeIf { it.providerId == selectedId }?.let {
+                    ProviderVerificationMessage(it)
+                }
+                OutlinedButton(
+                    onClick = onVerifyProvider,
+                    enabled = !profileState.busy && profileState.verification?.busy != true,
+                    modifier = Modifier.semantics { contentDescription = "Verify selected provider" },
+                ) { Text(if (profileState.verification?.busy == true) "Verifying" else "Verify profile") }
+            }
         }
-        OutlinedButton(
-            onClick = onVerifyProvider,
-            enabled = !profileState.busy && profileState.verification?.busy != true,
-            modifier = Modifier.semantics { contentDescription = "Verify selected provider" },
-        ) { Text(if (profileState.verification?.busy == true) "Verifying" else "Verify profile") }
 
         OneDriveStatusCard(oneDrive, graphState.accountDisplayName, onOneDriveRecovery)
 
+        Text("Receipt inputs", style = MaterialTheme.typography.titleLarge)
         Button(
             enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS,
             onClick = onChooseReceipt,
@@ -137,22 +151,28 @@ fun ReceiptWorkflowScreen(
             DebugOutputField("Raw extraction response", rawOutput)
         }
         Text("Add more")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onChooseReceipt, enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS) { Text("Images") }
             OutlinedButton(onClick = onAddItem, enabled = !workflowState.extracting && !workflowState.exporting && workflowState.items.size < MAX_BATCH_ITEMS) { Text("New item") }
 
         }
-        Button(onClick = onExtractAll, enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy && profileState.verification?.busy != true && workflowState.items.any { it.eligible } && workflowState.items.none { it.status == BatchItemStatus.PREPARING }) { Text("Extract all") }
-        Button(onClick = onExportAll, enabled = oneDrive.readyForExport && workflowState.canExportAll,
-            modifier = Modifier.semantics { contentDescription = "Export all reviewed transactions" }) {
-            Text(if (workflowState.exporting) "Exporting" else "Export All")
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Text("Review and export", style = MaterialTheme.typography.titleLarge)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onExtractAll, enabled = !workflowState.extracting && !workflowState.exporting && !profileState.busy && profileState.verification?.busy != true && workflowState.items.any { it.eligible } && workflowState.items.none { it.status == BatchItemStatus.PREPARING }) { Text("Extract all") }
+                Button(onClick = onExportAll, enabled = oneDrive.readyForExport && workflowState.canExportAll,
+                    modifier = Modifier.semantics { contentDescription = "Export all reviewed transactions" }) {
+                    Text(if (workflowState.exporting) "Exporting" else "Export All")
+                }
+                Text("Export All confirms every remaining reviewed transaction and saves one JSON list. All remaining items must be ready.", style = MaterialTheme.typography.bodySmall)
+                workflowState.exportAllBlockers.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text("${workflowState.items.count { it.status == BatchItemStatus.SUCCEEDED }} of ${workflowState.items.size} completed / ${workflowState.items.count { it.status == BatchItemStatus.PROCESSING }} processing / ${workflowState.items.count { it.status == BatchItemStatus.QUEUED }} queued / limit $MAX_BATCH_ITEMS")
+                if (workflowState.extracting) OutlinedButton(onClick = onCancelRemaining) { Text("Cancel remaining") }
+                workflowState.batchMessage?.let { CopyableMessage(it); TextButton(onClick = onUndoRemove) { Text("Undo") } }
+            }
         }
-        Text("Export All confirms every remaining reviewed transaction and saves one JSON list. All remaining items must be ready.", style = MaterialTheme.typography.bodySmall)
-        workflowState.exportAllBlockers.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-        Text("${workflowState.items.count { it.status == BatchItemStatus.SUCCEEDED }} of ${workflowState.items.size} completed / ${workflowState.items.count { it.status == BatchItemStatus.PROCESSING }} processing / ${workflowState.items.count { it.status == BatchItemStatus.QUEUED }} queued / limit $MAX_BATCH_ITEMS")
-        if (workflowState.extracting) OutlinedButton(onClick = onCancelRemaining) { Text("Cancel remaining") }
-        workflowState.batchMessage?.let { CopyableMessage(it); TextButton(onClick = onUndoRemove) { Text("Undo") } }
-        if (workflowState.items.isEmpty()) Card(Modifier.fillMaxWidth()) {
+        if (workflowState.items.isEmpty()) Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.Checkbox(false, { onAddTypedItem() })
                 Text("No receipt image")
@@ -208,6 +228,8 @@ internal fun SelectedReceiptImageReview(selectedImage: ReceiptImage?, onRemove: 
                     Modifier.fillMaxWidth()
                         .clickable { viewerOpen = true }
                         .semantics { contentDescription = SelectedReceiptPreviewDescription },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Text("Review selected image", style = MaterialTheme.typography.titleMedium)
@@ -216,7 +238,7 @@ internal fun SelectedReceiptImageReview(selectedImage: ReceiptImage?, onRemove: 
                             bitmap = current.bitmap,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Black),
+                            modifier = Modifier.fillMaxWidth().height(120.dp).background(MaterialTheme.colorScheme.surface),
                         )
                     }
                 }
@@ -253,6 +275,7 @@ private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectedReceiptImageViewer(
     image: androidx.compose.ui.graphics.ImageBitmap,
@@ -269,9 +292,40 @@ private fun SelectedReceiptImageViewer(
         val imageHeight = image.height.toFloat()
         val viewportWidth = viewport.width.toFloat()
         val viewportHeight = viewport.height.toFloat()
-        Box(Modifier.fillMaxSize().background(Color.Black).padding(24.dp)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface) {
+                FlowRow(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    onRemove?.let { TextButton({ it(); onClose() }) { Text("Remove") } }
+                    val canZoomIn = transform.scale < ReceiptImageViewerTransform.MAX_SCALE
+                    TextButton(
+                        onClick = {
+                            transform = transform.zoomBy(
+                                ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
+                                viewportWidth, viewportHeight, imageWidth, imageHeight,
+                            )
+                        },
+                        enabled = canZoomIn,
+                        modifier = Modifier.semantics { contentDescription = "Zoom in" },
+                    ) { Text("Zoom in") }
+                    val canZoomOut = transform.scale > ReceiptImageViewerTransform.MIN_SCALE
+                    TextButton(
+                        onClick = {
+                            transform = transform.zoomBy(
+                                1f / ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
+                                viewportWidth, viewportHeight, imageWidth, imageHeight,
+                            )
+                        },
+                        enabled = canZoomOut,
+                        modifier = Modifier.semantics { contentDescription = "Zoom out" },
+                    ) { Text("Zoom out") }
+                    TextButton(
+                        onClick = onClose,
+                        modifier = Modifier.semantics { contentDescription = "Close selected receipt image" },
+                    ) { Text("Close") }
+                }
+            }
             Box(
-                Modifier.fillMaxSize().clipToBounds().onSizeChanged {
+                Modifier.fillMaxWidth().weight(1f).clipToBounds().onSizeChanged {
                     viewport = it
                     transform = transform.bounded(it.width.toFloat(), it.height.toFloat(), imageWidth, imageHeight)
                 }.pointerInput(image, viewport) {
@@ -295,51 +349,19 @@ private fun SelectedReceiptImageViewer(
                     }
                 },
             ) {
-            androidx.compose.foundation.Image(
-                bitmap = image,
-                contentDescription = "Selected receipt image",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = transform.scale
-                    scaleY = transform.scale
-                    translationX = transform.offsetX
-                    translationY = transform.offsetY
-                },
-            )
-            }
-            Column(
-                Modifier.align(Alignment.TopStart),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                onRemove?.let { TextButton({ it(); onClose() }) { Text("Remove", color = Color.White) } }
-                val canZoomIn = transform.scale < ReceiptImageViewerTransform.MAX_SCALE
-                TextButton(
-                    onClick = {
-                        transform = transform.zoomBy(
-                            ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
-                            viewportWidth, viewportHeight, imageWidth, imageHeight,
-                        )
+                androidx.compose.foundation.Image(
+                    bitmap = image,
+                    contentDescription = "Selected receipt image",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        scaleX = transform.scale
+                        scaleY = transform.scale
+                        translationX = transform.offsetX
+                        translationY = transform.offsetY
                     },
-                    enabled = canZoomIn,
-                    modifier = Modifier.semantics { contentDescription = "Zoom in" },
-                ) { Text("Zoom in", color = if (canZoomIn) Color.White else Color.Gray) }
-                val canZoomOut = transform.scale > ReceiptImageViewerTransform.MIN_SCALE
-                TextButton(
-                    onClick = {
-                        transform = transform.zoomBy(
-                            1f / ReceiptImageViewerTransform.BUTTON_SCALE_FACTOR,
-                            viewportWidth, viewportHeight, imageWidth, imageHeight,
-                        )
-                    },
-                    enabled = canZoomOut,
-                    modifier = Modifier.semantics { contentDescription = "Zoom out" },
-                ) { Text("Zoom out", color = if (canZoomOut) Color.White else Color.Gray) }
+                )
             }
-            TextButton(
-                onClick = onClose,
-                modifier = Modifier.align(Alignment.TopEnd)
-                    .semantics { contentDescription = "Close selected receipt image" },
-            ) { Text("Close", color = Color.White) }
+
         }
     }
 }
@@ -399,7 +421,7 @@ private fun CompactProviderSelector(
 
 @Composable
 private fun ProviderVerificationMessage(state: ProviderVerificationState) {
-    Card(Modifier.fillMaxWidth()) { CopyableMessage(state.message, Modifier.padding(12.dp)) }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { CopyableMessage(state.message, Modifier.padding(16.dp)) }
 }
 
 @Composable
@@ -408,9 +430,9 @@ private fun OneDriveStatusCard(
     accountName: String?,
     onRecovery: (OneDriveRecoveryAction) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().semantics { contentDescription = "OneDrive export status" }) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(state.summary, style = MaterialTheme.typography.titleMedium)
+    Card(Modifier.fillMaxWidth().semantics { contentDescription = "OneDrive export status" }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReceiptStatusBadge(state.summary, ready = state.readyForExport)
             accountName?.let { Text(it) }
             CopyableMessage(state.detail)
             state.recoveryLabel?.let { label ->
@@ -429,38 +451,62 @@ internal fun ReceiptReviewEditor(
     onExport: () -> Unit,
     debugOutputEnabled: Boolean,
 ) {
-    Text(if (state.manualEntryRequired) "Manual receipt entry" else "Review extracted receipt", style = MaterialTheme.typography.headlineSmall)
-    CopyableMessage(state.message)
-    val editable = !exporting && state.exportExpenseId == null
-    ReviewField("Receipt date (yyyy-MM-dd)", state.receiptDate, editable) { onStateChange(state.copy(receiptDate = it)) }
-    ReviewField("Merchant", state.merchantName, editable) { onStateChange(state.copy(merchantName = it)) }
-    ReviewField("Total amount", state.totalAmount, editable) { onStateChange(state.copy(totalAmount = it)) }
-    ReviewField("Currency", state.currency, editable) { onStateChange(state.copy(currency = it.uppercase())) }
-    ReviewField("Notes", state.notes, editable) { onStateChange(state.copy(notes = it)) }
-    ReviewField("Merchant location", state.merchantLocation, editable) { onStateChange(state.copy(merchantLocation = it)) }
-    if (state.exportExpenseId != null && !state.exportComplete) {
-        Text("This export keeps the saved fields on retry. Choose the receipt again to make changes.")
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (state.manualEntryRequired) "Manual receipt entry" else "Review extracted receipt", style = MaterialTheme.typography.headlineSmall)
+            if (state.totalAmount.isNotBlank()) {
+                Text("${state.currency} ${state.totalAmount}", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.02).em))
+            }
+            CopyableMessage(state.message)
+            val editable = !exporting && state.exportExpenseId == null
+            ReviewField("Receipt date (yyyy-MM-dd)", state.receiptDate, editable) { onStateChange(state.copy(receiptDate = it)) }
+            ReviewField("Merchant", state.merchantName, editable) { onStateChange(state.copy(merchantName = it)) }
+            ReviewField("Total amount", state.totalAmount, editable) { onStateChange(state.copy(totalAmount = it)) }
+            ReviewField("Currency", state.currency, editable) { onStateChange(state.copy(currency = it.uppercase())) }
+            ReviewField("Notes", state.notes, editable) { onStateChange(state.copy(notes = it)) }
+            ReviewField("Merchant location", state.merchantLocation, editable) { onStateChange(state.copy(merchantLocation = it)) }
+            if (state.exportExpenseId != null && !state.exportComplete) {
+                Text("This export keeps the saved fields on retry. Choose the receipt again to make changes.")
+            }
+            if (state.currency != "CAD") Text("The Windows processor accepts CAD only. Other currencies go to review without conversion.")
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            ReceiptStatusBadge("Extraction status: ${state.extractionStatus}", ready = state.exportComplete || state.extractionStatus in listOf("confirmed", "manual", "extracted"))
+            Text("Confidence: ${state.confidence.ifBlank { "not available" }}")
+            val validationErrors = state.expenseValidationErrors()
+            validationErrors.forEach { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
+            Button(enabled = canExport && validationErrors.isEmpty() && !exporting && !state.exportComplete, onClick = onExport) {
+                Text(when {
+                    exporting -> "Exporting"
+                    state.exportComplete -> "Exported"
+                    state.exportExpenseId != null -> "Retry export"
+                    else -> "Confirm and export"
+                })
+            }
+            if (!canExport) Text("Connect and verify OneDrive access before exporting.")
+            if (debugOutputEnabled && state.exportJsonPreview != null) {
+                Text(
+                    if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON (not published)",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                DebugOutputField("Handoff JSON", state.exportJsonPreview)
+            }
+        }
     }
-    if (state.currency != "CAD") Text("The Windows processor accepts CAD only. Other currencies go to review without conversion.")
-    Text("Extraction status: ${state.extractionStatus}")
-    Text("Confidence: ${state.confidence.ifBlank { "not available" }}")
-    val validationErrors = state.expenseValidationErrors()
-    validationErrors.forEach { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
-    Button(enabled = canExport && validationErrors.isEmpty() && !exporting && !state.exportComplete, onClick = onExport) {
-        Text(when {
-            exporting -> "Exporting"
-            state.exportComplete -> "Exported"
-            state.exportExpenseId != null -> "Retry export"
-            else -> "Confirm and export"
-        })
-    }
-    if (!canExport) Text("Connect and verify OneDrive access before exporting.")
-    if (debugOutputEnabled && state.exportJsonPreview != null) {
-        Text(
-            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON (not published)",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        DebugOutputField("Handoff JSON", state.exportJsonPreview)
+}
+
+@Composable
+internal fun ReceiptStatusBadge(label: String, ready: Boolean = false, failed: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = when { failed -> colors.errorContainer; ready -> colors.primaryContainer; else -> colors.secondaryContainer },
+        contentColor = when { failed -> colors.onErrorContainer; ready -> colors.onPrimaryContainer; else -> colors.onSecondaryContainer },
+    ) {
+        Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -479,5 +525,8 @@ internal fun DebugOutputField(label: String, value: String) {
 
 @Composable
 internal fun ReviewField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
-    OutlinedTextField(value, onValueChange, label = { Text(label) }, enabled = enabled, singleLine = true, modifier = Modifier.fillMaxWidth())
+    val numeric = label.contains("date", ignoreCase = true) || label.contains("total", ignoreCase = true) || label.contains("amount", ignoreCase = true) || label.contains("tax", ignoreCase = true)
+    OutlinedTextField(value, onValueChange, label = { Text(label) }, enabled = enabled, singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = if (numeric) ReceiptFontFamily else MaterialTheme.typography.bodyLarge.fontFamily),
+        modifier = Modifier.fillMaxWidth())
 }

@@ -126,10 +126,16 @@ class BatchWorkflowScreenTest {
         compose.onNodeWithText("Choose images").assertExists()
         compose.onNode(isToggleable()).performClick()
         compose.onNodeWithText("Saved merchant").assertExists()
-        compose.onNodeWithText("Collapse Typed expense 1 / ready / 0 transactions").performClick()
+        compose.onNodeWithText("Ready").assertExists()
+        compose.onNodeWithText("0 transactions").assertExists()
+        compose.onNodeWithText("Collapse Typed expense 1").performClick()
         compose.onNodeWithText("Saved merchant").assertDoesNotExist()
-        compose.onNodeWithText("Expand Typed expense 1 / ready / 0 transactions").performClick()
+        compose.onNodeWithText("Ready").assertExists()
+        compose.onNodeWithText("0 transactions").assertExists()
+        compose.onNodeWithText("Expand Typed expense 1").performClick()
         compose.onNodeWithText("Saved merchant").assertExists()
+        compose.onNodeWithText("Ready").assertExists()
+        compose.onNodeWithText("0 transactions").assertExists()
     }
     @Test fun removalUsesStableItemIdAndRetryRequiresReplacementConfirmation() {
         var removed:String?=null;var retried:Pair<String,Boolean>?=null

@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-12
 
+## Gap 15: Adaptive Main and Settings UI
+
+Status: ✅ Done (2026-10-12).
+
+- Applied Hugo's chosen Android dynamic-color policy using semantic Material 3 roles with system light/dark switching and pre-Android-12 defaults. Bundled Inter and Roboto Mono with licenses.
+- Grouped Main provider/input/review content, separated receipt fields and status badges, emphasized totals, and moved viewer controls outside the complete fitted-image viewport.
+- Grouped Settings cards with dividers and uniform icons; retained checkbox/switch semantics and all callbacks, added full-row 48dp targets and wrapping profile/concurrency actions.
+- Verified against `REQ-UI-001..014` and relevant `AC-022..025/032..039`: **87 shared/264 Android unit tests**, **26 affected emulator tests**, debug build and device-test compilation pass. Independent review and light/dark emulator inspection complete; README updated. See [evidence, commands and physical-display limits](11.adaptive-ui-verification.md).
+
 ## Gap 14: Same-Phone Mobile Model Server
 
 Planning, companion software/HTTP-service checks and expense-app software/automated client verification: ✅ Done. Phone Verify, receipt-photo extraction and typed-expense extraction: ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-12. Offline use, cancellation/retry/native drain, accuracy/latency/memory and background acceptance remain unconfirmed.

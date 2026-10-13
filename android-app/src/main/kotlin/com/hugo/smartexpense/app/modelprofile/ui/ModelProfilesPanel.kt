@@ -1,6 +1,14 @@
 package com.hugo.smartexpense.app.modelprofile.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import com.hugo.smartexpense.app.settings.ui.SettingsToggleRow
+import com.hugo.smartexpense.app.settings.ui.settingsGroupIcon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -16,12 +24,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,27 +57,23 @@ fun ModelProfilesPanel(
     onExportProfiles: () -> Unit,
     onImportProfiles: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Built-in on-device | Same-phone server | Remote API", style = MaterialTheme.typography.labelLarge)
         Text("Model Selector", style = MaterialTheme.typography.headlineMedium)
         Text(state.effectiveProviderSummary)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Switch(
-                checked = state.selectorState.remoteProvidersEnabled,
-                onCheckedChange = viewModel::setRemoteProvidersEnabled,
-                enabled = !state.busy,
-            )
-            Text(
-                if (state.selectorState.remoteProvidersEnabled) "Remote providers enabled"
+        SettingsToggleRow(
+            checked = state.selectorState.remoteProvidersEnabled,
+            onCheckedChange = viewModel::setRemoteProvidersEnabled,
+            title = if (state.selectorState.remoteProvidersEnabled) "Remote providers enabled"
                 else "Remote providers disabled (private local fallback)",
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
-        Text("Remote testing and extraction contact the configured endpoint and may send receipt data.")
-        TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy) { Text("Recover credentials") }
+            description = "Remote testing and extraction contact the configured endpoint and may send receipt data.",
+            accessibilityLabel = "Remote providers", enabled = !state.busy, checkbox = false,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Recover credentials") }
         state.message?.let {
             Card(Modifier.fillMaxWidth()) { CopyableMessage(it, Modifier.padding(12.dp)) }
-            if (it.contains("cleanup", ignoreCase = true)) TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy) { Text("Retry credential recovery") }
+            if (it.contains("cleanup", ignoreCase = true)) TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry credential recovery") }
         }
 
         val editor = state.editor
@@ -108,12 +110,12 @@ fun ModelProfilesPanel(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = viewModel::confirmProviderConfigImport, enabled = !state.busy) {
+                    Button(onClick = viewModel::confirmProviderConfigImport, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
                         Text("Import profiles")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::cancelProviderConfigImport, enabled = !state.busy) {
+                    TextButton(onClick = viewModel::cancelProviderConfigImport, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
                         Text("Cancel")
                     }
                 },
@@ -131,47 +133,52 @@ private fun ProfileList(
     onImportProfiles: () -> Unit,
 ) {
     var deleteTarget by remember { mutableStateOf<ModelProfile?>(null) }
-    Text("Saved profiles", style = MaterialTheme.typography.headlineSmall)
+    Text("Saved profiles", style = MaterialTheme.typography.titleLarge)
     if (state.profiles.isEmpty()) {
         Text("No remote profiles are saved. Local extraction remains selected.")
     }
     state.profiles.forEach { profile ->
         val selected = state.selectorState.selectedRemoteProfileId == profile.id &&
             (profile.category == ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled)
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(if (profile.category == ApiProfileCategory.SAME_PHONE_SERVER) "Same-phone server" else "Remote API", style = MaterialTheme.typography.labelLarge)
-                Text(profile.displayName, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(settingsGroupIcon(), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text(profile.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                }
                 Text("${profile.modelId} • ${profile.inputMode.name.lowercase().replace('_', ' ')}")
                 Text(profile.baseUrl)
                 profile.configurationError?.let { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
                 if (selected) Text("Selected for next extraction", color = MaterialTheme.colorScheme.primary)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.selectProfile(profile) },
+                        modifier = Modifier.heightIn(min = 48.dp),
                         enabled = !selected && (profile.category == ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled) && !state.busy,
                     ) { Text(if (selected) "Selected" else "Select") }
-                    OutlinedButton(onClick = { viewModel.editProfile(profile) }, enabled = !state.busy) { Text("Edit") }
-                    TextButton(onClick = { deleteTarget = profile }, enabled = !state.busy) { Text("Delete") }
+                    OutlinedButton(onClick = { viewModel.editProfile(profile) }, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Edit") }
+                    TextButton(onClick = { deleteTarget = profile }, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete") }
                 }
                 OutlinedButton(
                     onClick = { viewModel.duplicateProfile(profile.id) },
                     enabled = !state.busy,
-                    modifier = Modifier.semantics { contentDescription = "Duplicate profile ${profile.displayName}" },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Duplicate profile ${profile.displayName}" },
                 ) { Text("Duplicate profile") }
             }
         }
     }
-    Button(onClick = viewModel::addProfile, enabled = !state.busy) { Text("Add profile") }
+    Button(onClick = viewModel::addProfile, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add profile") }
     OutlinedButton(
         onClick = onExportProfiles,
         enabled = state.profiles.isNotEmpty() && !state.busy,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) { Text("Export all profiles") }
     OutlinedButton(
         onClick = onImportProfiles,
         enabled = !state.busy,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) { Text("Import profiles") }
 
     deleteTarget?.let { profile ->
@@ -180,9 +187,9 @@ private fun ProfileList(
             title = { Text("Delete ${profile.displayName}?") },
             text = { Text("This removes the profile and its stored credential. If selected, extraction immediately falls back to the local provider.") },
             confirmButton = {
-                Button(onClick = { viewModel.deleteProfile(profile); deleteTarget = null }) { Text("Delete profile") }
+                Button(onClick = { viewModel.deleteProfile(profile); deleteTarget = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete profile") }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel") } },
         )
     }
 }
@@ -225,18 +232,18 @@ private fun ProfileEditor(
         error = editor.validationErrors[ModelProfileField.MODEL_ID],
         enabled = !busy,
     )
-    OutlinedButton(onClick = viewModel::loadModels, enabled = !busy) { Text("Load models") }
+    OutlinedButton(onClick = viewModel::loadModels, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Load models") }
     Text("Loading models sends only a model-list request. You can always enter a model ID manually.")
     editor.catalogEndpoint?.let { Text("Models endpoint: $it", style = MaterialTheme.typography.bodySmall) }
     when (val catalog = editor.catalogState) {
         ModelCatalogState.Idle -> Unit
         is ModelCatalogState.Loading -> {
             Text("Loading models...")
-            TextButton(onClick = viewModel::cancelModelDiscovery) { Text("Cancel model loading") }
+            TextButton(onClick = viewModel::cancelModelDiscovery, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel model loading") }
         }
         is ModelCatalogState.Loaded -> {
             Text("Loaded ${catalog.models.size} models. Listing does not verify receipt support or inference access.")
-            TextButton(onClick = viewModel::openModelPicker, enabled = !busy) { Text("Choose model") }
+            TextButton(onClick = viewModel::openModelPicker, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Choose model") }
             if (editor.modelPickerOpen) ModelPicker(catalog, viewModel)
         }
         ModelCatalogState.Empty -> Text("The endpoint is reachable but returned no models. Enter a model ID manually.")
@@ -257,9 +264,9 @@ private fun ProfileEditor(
         CredentialEdit.Clear -> "Clear credential when saved"
         is CredentialEdit.Replace -> "Replace credential when saved"
     })
-    Row {
-        TextButton(onClick = viewModel::keepCredential, enabled = !busy) { Text("Keep") }
-        TextButton(onClick = viewModel::clearCredential, enabled = !busy) { Text("Clear") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = viewModel::keepCredential, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep") }
+        TextButton(onClick = viewModel::clearCredential, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear") }
     }
     if (draft.category == ApiProfileCategory.REMOTE_API) {
         Text("Receipt input")
@@ -288,29 +295,24 @@ private fun ProfileEditor(
             onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)) },
             enabled = !busy,
         )
-        Row {
-            Checkbox(
-                checked = draft.showTailscaleToggle,
-                onCheckedChange = { update(draft.copy(showTailscaleToggle = it)) },
-                enabled = !busy,
-                modifier = Modifier.semantics { contentDescription = "Show Tailscale control on Main" },
-            )
-            Text("Show Tailscale control on Main", Modifier.padding(top = 12.dp))
-        }
-        Text("When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.")
+        SettingsToggleRow(draft.showTailscaleToggle, { update(draft.copy(showTailscaleToggle = it)) },
+            "Show Tailscale control on Main",
+            "When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.",
+            "Show Tailscale control on Main", enabled = !busy)
     } else {
         Text("Receipt input: Direct image")
         Text("Structured output: Prompt-only JSON")
     }
     Text("Testing sends a connectivity prompt to this endpoint. It does not save or select the profile.")
     editor.testStatus?.let { CopyableMessage(it) }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = viewModel::testProfile, enabled = locallyValid && !busy) { Text("Test provider") }
-        Button(onClick = { viewModel.saveProfile(false) }, enabled = locallyValid && !busy) { Text("Save") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = viewModel::testProfile, enabled = locallyValid && !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Test provider") }
+        Button(onClick = { viewModel.saveProfile(false) }, enabled = locallyValid && !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save") }
     }
     TextButton(
         onClick = { if (editor.hasUnsavedChanges) confirmDiscard = true else viewModel.cancelEdit() },
         enabled = !busy,
+        modifier = Modifier.heightIn(min = 48.dp),
     ) { Text("Cancel") }
 
     if (confirmDiscard) {
@@ -318,8 +320,8 @@ private fun ProfileEditor(
             onDismissRequest = { confirmDiscard = false },
             title = { Text("Discard unsaved changes?") },
             text = { Text("Your profile edits and unsaved API key entry will be lost.") },
-            confirmButton = { Button(onClick = { confirmDiscard = false; viewModel.cancelEdit() }) { Text("Discard") } },
-            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") } },
+            confirmButton = { Button(onClick = { confirmDiscard = false; viewModel.cancelEdit() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Discard") } },
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep editing") } },
         )
     }
 }
@@ -339,10 +341,12 @@ private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: 
 }
 
 @Composable
-private fun EnumChoice(selected: Boolean, label: String, onClick: () -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)) {
+internal fun EnumChoice(selected: Boolean, label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
-        Text(label, Modifier.padding(top = 12.dp))
+        Text(label, Modifier.weight(1f).padding(start = 8.dp, end = 8.dp))
     }
 }
 
@@ -361,12 +365,12 @@ private fun ModelPicker(catalog: ModelCatalogState.Loaded, viewModel: ModelProfi
                     items(matching, key = { it.id }) { model ->
                         TextButton(
                             onClick = { viewModel.selectCatalogModel(model.id) },
-                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Choose model ${model.id}" },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Choose model ${model.id}" },
                         ) { Text(model.id) }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = viewModel::dismissModelPicker) { Text("Close picker") } },
+        confirmButton = { TextButton(onClick = viewModel::dismissModelPicker, modifier = Modifier.heightIn(min = 48.dp)) { Text("Close picker") } },
     )
 }
