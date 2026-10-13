@@ -9,8 +9,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ModelProfileEntity::class, ModelSelectorStateEntity::class],
-    version = 2,
+    entities = [ModelProfileEntity::class, ModelSelectorStateEntity::class, CredentialMutationJournalEntity::class],
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(ModelProfileTypeConverters::class)
@@ -23,6 +23,12 @@ abstract class ModelProfileDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE model_profiles ADD COLUMN show_tailscale_toggle INTEGER NOT NULL DEFAULT 0")
             }
         }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_profiles ADD COLUMN category TEXT NOT NULL DEFAULT 'REMOTE_API'")
+                db.execSQL("CREATE TABLE IF NOT EXISTS credential_mutation_journal (id TEXT NOT NULL PRIMARY KEY, profile_id TEXT NOT NULL, alias TEXT NOT NULL, phase TEXT NOT NULL)")
+            }
+        }
         @Volatile private var instance: ModelProfileDatabase? = null
 
         fun getInstance(context: Context): ModelProfileDatabase = instance ?: synchronized(this) {
@@ -30,7 +36,7 @@ abstract class ModelProfileDatabase : RoomDatabase() {
                 context.applicationContext,
                 ModelProfileDatabase::class.java,
                 "smart-expense.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }

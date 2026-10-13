@@ -40,20 +40,40 @@ class OpenAiCompatibleReceiptModelClient(
 
     fun testConfiguration(): ProviderTestResult = try {
         val response = execute(
-            buildTextRequest(
-                prompt = """Return only this JSON object: {"status":"ok"}""",
-                receiptText = "Provider connectivity test.",
+            buildUserTextRequest(
+                promptText = """This is a provider connectivity test. Reply with exactly {"status":"ok"}. Do not include Markdown, explanations, or additional fields.""",
                 schemaName = "provider_connectivity",
                 schema = providerTestSchema,
             )
         )
-        if (response.trim() == "{\"status\":\"ok\"}") {
+        val payload = runCatching { StrictProtocolJson.objectValue(providerTestContent(response)) }.getOrNull()
+        if (payload == mapOf("status" to "ok")) {
             ProviderTestResult.Success
         } else {
-            ProviderTestResult.Failed("Provider test did not return the expected JSON payload.")
+            val reason = when {
+                response.isBlank() -> "Assistant content was empty."
+                payload == null -> "Assistant content was not one valid JSON object."
+                else -> "The JSON object did not match the connectivity test."
+            }
+            ProviderTestResult.Failed(
+                "Provider test received HTTP 200 with assistant content, but verification failed. " +
+                    "$reason Expected exactly {\"status\":\"ok\"}. Retry verification; if it persists, check the model's JSON output in the companion/provider."
+            )
         }
     } catch (error: RemoteProviderException) {
         ProviderTestResult.Failed(error.message ?: "Provider test failed.")
+    }
+
+    // Prompt-only models can wrap JSON in a code block, as supported by receipt review.
+    // Unwrap only a complete block; never search for JSON inside prose or hidden reasoning.
+    private fun providerTestContent(response: String): String {
+        val text = response.trim()
+        if (provider.structuredOutputFormat != RemoteStructuredOutputFormat.PROMPT_ONLY_JSON) return text
+        val firstLine = text.substringBefore('\n').removeSuffix("\r")
+        if (firstLine != "```" && !firstLine.equals("```json", ignoreCase = true)) return text
+        val closingLine = text.lastIndexOf('\n')
+        if (closingLine <= text.indexOf('\n') || text.substring(closingLine + 1) != "```") return text
+        return text.substring(text.indexOf('\n') + 1, closingLine).trim()
     }
 
     private fun execute(request: OpenAiCompatibleApiRequest): String {
@@ -64,7 +84,7 @@ class OpenAiCompatibleReceiptModelClient(
             throw RemoteProviderException.NetworkUnavailable(
                 provider.displayName,
                 "Network is unavailable for ${provider.displayName}.",
-                error,
+                null,
             )
         }
     }
@@ -85,13 +105,17 @@ class OpenAiCompatibleReceiptModelClient(
             throw RemoteProviderException.NetworkUnavailable(
                 provider.displayName,
                 "Network is unavailable for ${provider.displayName}.",
-                error,
+                null,
             )
         }
     }
 
     private fun send(request: OpenAiCompatibleApiRequest, verification: Boolean = false): OpenAiCompatibleApiResponse =
-        InferenceExecution.request(verification) { transport.send(request) }
+        InferenceExecution.request(verification, if (provider.category == ApiProfileCategory.SAME_PHONE_SERVER)
+            ProviderCategory.SAME_PHONE_SERVER else ProviderCategory.REMOTE_API) {
+            if (provider.category == ApiProfileCategory.SAME_PHONE_SERVER) SamePhoneRequestLifetime.send(request, transport)
+            else transport.send(request)
+        }
 
     private fun OpenAiCompatibleApiResponse.isInvalidJsonRequest(): Boolean {
         if (statusCode != 400) return false
@@ -100,25 +124,40 @@ class OpenAiCompatibleReceiptModelClient(
             body.contains("failed to parse JSON", ignoreCase = true)
     }
 
+    private fun effectiveKey(): String? {
+        val scope = InferenceExecution.current.get()
+        return if (scope == null) apiKeyStore.get(provider.apiKeyAlias) else scope.credentials.get(provider.apiKeyAlias, apiKeyStore)
+    }
+
+    private fun safeErrorBody(body: String): String? {
+        if (provider.category == ApiProfileCategory.SAME_PHONE_SERVER) return null
+        val key = effectiveKey()
+        return if (key.isNullOrEmpty()) body else body.replace(key, "[REDACTED]")
+    }
+
     private fun mapResponse(response: OpenAiCompatibleApiResponse): String {
         return when (response.statusCode) {
-            200 -> parseAssistantContent(response.body)
+            200 -> parseAssistantContent(response.body).also { content ->
+                val key = effectiveKey()
+                if (!key.isNullOrEmpty() && content.contains(key)) throw RemoteProviderException.UnexpectedResponse(
+                    provider.displayName, "Provider response contained credential material; output was rejected.")
+            }
             401, 403 -> throw RemoteProviderException.AuthenticationFailed(
                 provider.displayName,
-                extractErrorMessage(response.body) ?: "Authentication failed for ${provider.displayName}.",
-                response.body,
+                extractErrorMessage(response) ?: "Authentication failed for ${provider.displayName}.",
+                safeErrorBody(response.body),
             )
             429 -> throw RemoteProviderException.RateLimited(
                 provider.displayName,
-                extractErrorMessage(response.body) ?: "${provider.displayName} rate limited the request.",
-                response.body,
+                extractErrorMessage(response) ?: "${provider.displayName} rate limited the request.",
+                safeErrorBody(response.body),
                 retryAfterMillis = parseRetryAfter(response.headers.entries.firstOrNull { it.key.equals("Retry-After", true) }?.value),
             )
             else -> throw RemoteProviderException.UnexpectedResponse(
                 provider.displayName,
-                extractErrorMessage(response.body)
+                extractErrorMessage(response)
                     ?: "Unexpected ${response.statusCode} response from ${provider.displayName}.",
-                response.body,
+                safeErrorBody(response.body),
                 httpStatusCode = response.statusCode,
             )
         }
@@ -136,6 +175,15 @@ class OpenAiCompatibleReceiptModelClient(
             append("\n\nReceipt text:\n")
             append(receiptText)
         }
+        return buildUserTextRequest(promptText, schemaName, schema, includeResponseFormat)
+    }
+
+    private fun buildUserTextRequest(
+        promptText: String,
+        schemaName: String,
+        schema: String,
+        includeResponseFormat: Boolean = true,
+    ): OpenAiCompatibleApiRequest {
         val body = """
             {
               "model": ${jsonString(provider.modelId)},
@@ -165,6 +213,11 @@ class OpenAiCompatibleReceiptModelClient(
         receiptImage: ReceiptImage,
         includeResponseFormat: Boolean = true,
     ): OpenAiCompatibleApiRequest {
+        if (provider.category == ApiProfileCategory.SAME_PHONE_SERVER) {
+            require(receiptImage.mimeType in setOf("image/jpeg", "image/png")) { "Use a JPEG or PNG receipt." }
+            require(receiptImage.bytes.size <= 8 * 1024 * 1024) { "Enable preprocessing or select a smaller receipt image." }
+            ImageAdmission.validate(receiptImage)
+        }
         val imageDataUrl = "data:${receiptImage.mimeType};base64," +
             Base64.getEncoder().encodeToString(receiptImage.bytes)
         val body = """
@@ -204,24 +257,33 @@ class OpenAiCompatibleReceiptModelClient(
 
     private fun buildRequest(body: String): OpenAiCompatibleApiRequest {
         val activeScope = InferenceExecution.current.get()
-        val apiKey = (if (activeScope == null) apiKeyStore.get(provider.apiKeyAlias)
-            else activeScope.credentials.get(provider.apiKeyAlias, apiKeyStore))
-            ?: throw RemoteProviderException.AuthenticationFailed(
-                provider.displayName,
-                "No API key is available for ${provider.displayName}.",
-            )
-
+        val apiKey = if (activeScope == null) apiKeyStore.get(provider.apiKeyAlias)
+            else activeScope.credentials.get(provider.apiKeyAlias, apiKeyStore)
+        if (apiKey == null && provider.category == ApiProfileCategory.REMOTE_API)
+            throw RemoteProviderException.AuthenticationFailed(provider.displayName, "No API key is available for ${provider.displayName}.")
+        require(apiKey == null || (apiKey.isNotBlank() && apiKey.all { it.code in 32..126 })) { "API key must be nonblank and header-safe." }
+        val base = ApiEndpointValidator.normalize(provider.baseUrl, provider.category)
+        require(provider.category != ApiProfileCategory.SAME_PHONE_SERVER ||
+            (provider.inputMode == RemoteInputMode.DIRECT_IMAGE && provider.structuredOutputFormat == RemoteStructuredOutputFormat.PROMPT_ONLY_JSON)) {
+            "Same-phone server requires direct image input and Prompt-only JSON."
+        }
+        require(provider.category != ApiProfileCategory.SAME_PHONE_SERVER || body.toByteArray(Charsets.UTF_8).size <= 12 * 1024 * 1024) {
+            "Request exceeds 12 MiB; reduce the receipt input."
+        }
         return OpenAiCompatibleApiRequest(
-            url = "${provider.baseUrl.trimEnd('/')}/chat/completions",
-            headers = mapOf(
-                "Authorization" to "Bearer $apiKey",
-                "Content-Type" to "application/json",
-            ),
+            url = "$base/chat/completions",
+            headers = buildMap {
+                if (apiKey != null) put("Authorization", "Bearer $apiKey")
+                put("Content-Type", "application/json")
+            },
             body = body,
+            category = provider.category,
+            approvedBaseUrl = base,
         )
     }
 
     private fun structuredOutputFormat(schemaName: String, schema: String): String = when (provider.structuredOutputFormat) {
+        RemoteStructuredOutputFormat.PROMPT_ONLY_JSON -> error("Prompt-only JSON has no response format.")
         RemoteStructuredOutputFormat.JSON_OBJECT -> "{\"type\": \"json_object\"}"
         RemoteStructuredOutputFormat.JSON_SCHEMA -> """
             {
@@ -236,110 +298,44 @@ class OpenAiCompatibleReceiptModelClient(
     }
 
     private fun responseFormatField(schemaName: String, schema: String, include: Boolean): String =
-        if (include) {
+        if (include && provider.structuredOutputFormat != RemoteStructuredOutputFormat.PROMPT_ONLY_JSON) {
             "\"response_format\": ${structuredOutputFormat(schemaName, schema)},"
         } else {
             ""
         }
 
     private fun parseAssistantContent(responseBody: String): String {
-        val contentFieldIndex = responseBody.indexOf("\"content\"")
-        if (contentFieldIndex >= 0) {
-            val colonIndex = responseBody.indexOf(':', startIndex = contentFieldIndex + "\"content\"".length)
-            if (colonIndex >= 0) {
-                val firstValueIndex = responseBody.indexOfFirstNonWhitespace(startIndex = colonIndex + 1)
-                if (firstValueIndex >= 0) {
-                    return when (responseBody[firstValueIndex]) {
-                        '"' -> readJsonString(responseBody, firstValueIndex) ?: unexpectedContent(responseBody)
-                        '[' -> {
-                            val arraySlice = responseBody.substring(firstValueIndex)
-                            findStringFieldAfter(arraySlice, "\"text\"") ?: unexpectedContent(responseBody)
-                        }
-                        else -> unexpectedContent(responseBody)
+        try {
+            val envelope = StrictProtocolJson.objectValue(responseBody)
+            val choices = envelope["choices"] as? List<*> ?: error("Missing choices.")
+            val message = (choices.firstOrNull() as? Map<*, *>)?.get("message") as? Map<*, *> ?: error("Missing message.")
+            // Preserve legacy remote providers that omit role; same-phone requires the contract role.
+            require(message["role"] == "assistant" || (provider.category == ApiProfileCategory.REMOTE_API && !message.containsKey("role")))
+            return when (val content = message["content"]) {
+                is String -> content
+                is List<*> -> {
+                    require(provider.category == ApiProfileCategory.REMOTE_API && content.isNotEmpty())
+                    content.joinToString("") { part ->
+                        val textPart = part as? Map<*, *> ?: error("Invalid content part.")
+                        require(textPart["type"] == "text")
+                        textPart["text"] as? String ?: error("Missing text.")
                     }
                 }
+                else -> error("Unsupported assistant content.")
             }
-        }
-
-        val textContent = findStringFieldAfter(responseBody, "\"text\"")
-        if (textContent != null) {
-            return textContent
-        }
-
-        throw RemoteProviderException.UnexpectedResponse(
-            provider.displayName,
-            "Provider response did not include assistant content.",
-            responseBody,
-        )
+        } catch (_: IllegalArgumentException) { unexpectedContent() }
+        catch (_: IllegalStateException) { unexpectedContent() }
     }
 
-    private fun extractErrorMessage(responseBody: String): String? {
-        return findStringFieldAfter(responseBody, "\"message\"")
-            ?: findStringFieldAfter(responseBody, "\"error\"")
+    private fun extractErrorMessage(response: OpenAiCompatibleApiResponse): String? {
+        if (provider.category == ApiProfileCategory.SAME_PHONE_SERVER) return SamePhoneRequestLifetime.guidance(response)
+        val responseBody = response.body
+        val message = runCatching { (StrictProtocolJson.objectValue(responseBody)["error"] as? Map<*, *>)?.get("message") as? String }.getOrNull()
+        val key = effectiveKey()
+        return message?.let { if (key.isNullOrEmpty()) it else it.replace(key, "[REDACTED]") }
     }
-
-    private fun findStringFieldAfter(body: String, fieldNameToken: String): String? {
-        val fieldIndex = body.indexOf(fieldNameToken)
-        if (fieldIndex < 0) {
-            return null
-        }
-
-        val colonIndex = body.indexOf(':', startIndex = fieldIndex + fieldNameToken.length)
-        if (colonIndex < 0) {
-            return null
-        }
-
-        val firstQuoteIndex = body.indexOfFirstNonWhitespace(startIndex = colonIndex + 1)
-        if (firstQuoteIndex < 0 || body[firstQuoteIndex] != '"') {
-            return null
-        }
-
-        return readJsonString(body, firstQuoteIndex)
-    }
-
-    private fun readJsonString(body: String, openingQuoteIndex: Int): String? {
-        val value = StringBuilder()
-        var escaped = false
-        for (index in (openingQuoteIndex + 1) until body.length) {
-            val character = body[index]
-            if (escaped) {
-                value.append(
-                    when (character) {
-                        '\\', '/', '"' -> character
-                        'n' -> '\n'
-                        'r' -> '\r'
-                        't' -> '\t'
-                        else -> character
-                    }
-                )
-                escaped = false
-                continue
-            }
-
-            when (character) {
-                '\\' -> escaped = true
-                '"' -> return value.toString()
-                else -> value.append(character)
-            }
-        }
-
-        return null
-    }
-
-    private fun String.indexOfFirstNonWhitespace(startIndex: Int): Int {
-        for (index in startIndex until length) {
-            if (!this[index].isWhitespace()) {
-                return index
-            }
-        }
-        return -1
-    }
-
-    private fun unexpectedContent(responseBody: String): Nothing = throw RemoteProviderException.UnexpectedResponse(
-        provider.displayName,
-        "Provider response did not include assistant content.",
-        responseBody,
-    )
+    private fun unexpectedContent(): Nothing = throw RemoteProviderException.UnexpectedResponse(
+        provider.displayName, "Provider response did not include valid assistant content.")
 
     private fun jsonString(value: String): String = buildString {
         append('"')
@@ -402,6 +398,10 @@ data class OpenAiCompatibleApiRequest(
     val url: String,
     val headers: Map<String, String>,
     val body: String,
+    val method: String = "POST",
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
+    val approvedBaseUrl: String? = null,
+    val cleanupDeadlineNanos: Long? = null,
 ) {
     fun redactForLogging(): RedactedApiRequest = RedactedApiRequest(
         url = url,
@@ -422,7 +422,12 @@ data class OpenAiCompatibleApiResponse(
     val statusCode: Int,
     val body: String,
     val headers: Map<String, String> = emptyMap(),
+    val companionRequestStage: CompanionRequestStage? = null,
 )
+
+enum class CompanionRequestStage(val description: String) {
+    PREPARATION("Request preparation"), CHAT("Chat inference"),
+}
 
 interface OpenAiCompatibleApiTransport {
     fun send(request: OpenAiCompatibleApiRequest): OpenAiCompatibleApiResponse

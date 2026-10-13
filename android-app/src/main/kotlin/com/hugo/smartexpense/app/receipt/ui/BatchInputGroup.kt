@@ -1,5 +1,7 @@
 package com.hugo.smartexpense.app.receipt.ui
 
+import com.hugo.smartexpense.app.ui.CopyableMessage
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,7 +59,7 @@ internal fun BatchInputGroup(
                 }
                 if (item.status == BatchItemStatus.FAILED && (item.noImage || item.preparedUri != null || item.image != null)) OutlinedButton({ onManual(item.itemId) }, enabled = editable) { Text("Enter manually") }
                 if (debug && item.rawFailureOutput.isNotBlank()) DebugOutputField("Raw extraction error", item.rawFailureOutput)
-                item.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                item.error?.let { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
                 if (item.immutable) Text("Exported or export-started fields are immutable. Add a new item to replace this expense.")
                 val hasSource = item.noImage || item.preparedUri != null || item.image != null
                 val hasUnexportedResults = item.transactions.isEmpty() || item.transactions.any { it.review.exportExpenseId == null }

@@ -29,7 +29,8 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 
 ### 2. Extract with a provider you control
 
-- Use the privacy-first local LiteRT-LM provider when its Gemma 4 E2B model is installed, or explicitly opt in to a saved OpenAI-compatible provider.
+- Use Built-in on-device LiteRT-LM, explicitly select a Same-phone server, or opt in to a saved Remote API provider.
+- Use **Copy message** or long-press diagnostics to copy errors; the companion offers **Copy** for its saved and active endpoint URLs.
 - Manage multiple provider profiles securely and import or export their configuration without credentials.
 - Duplicate a saved profile with its own credential copy, or use **Load models** in the editor to search an OpenAI-compatible provider's model IDs. Manual entry remains available; save and provider selection are explicit.
 - Enable **Show Tailscale control on Main** per remote profile for on-demand connect/disconnect requests. Install and sign in to Tailscale first; save the Tailscale Serve URL `https://<MINI_PC_NAME>.<TAILNET_NAME>.ts.net/v1` without `:1234`, with LM Studio **Allow local network access** enabled. Main shows live VPN detection and checks `GET /models` while foregrounded, with up to 30 seconds of connect retries. VPN detection cannot identify Tailscale; models reachability does not verify inference. See [the reusable checker inputs](docs/6.tailscale-integration-goal.md#reusable-models-endpoint-check).
@@ -73,6 +74,10 @@ To build on another PC while keeping the existing Microsoft sign-in registration
 
 Local on-device extraction additionally requires `gemma-4-E2B-it.litertlm` in the app's private models directory. The Android LiteRT-LM device path is still being validated; remote providers are optional and require explicit opt-in.
 
+For **Same-phone server**, install the supported **Same-phone AI Companion** (Android API 31+), provision/import a compatible vision model, load it, and explicitly Start. In expense Settings, add a profile, choose **Same-phone server**, match the companion's endpoint (default `http://127.0.0.1:8080/v1`) and optional key, enter or load the model ID, save, select, and verify before extraction. Remote opt-in is independent. To remove a client key, choose **Clear key** and Save; align or clear keys in both apps. Stop/restart the companion and explicitly Retry after unconfirmed cleanup; use **Recover credentials** for pending secure cleanup. See [client verification](docs/10b.mobile-server-expense-app-verification.md) and [companion setup](docs/10a.mobile-server-companion-verification.md).
+
+The companion's HTTP chat requires the expense app's request-preparation extension. Generic OpenAI chat apps need explicit support for that contract; successful model discovery or built-in companion chat does not establish external chat compatibility. Verification failures show the request stage, HTTP status and safe error code for troubleshooting. Prompt-only verification accepts a complete JSON code block; invalid-output errors distinguish empty, malformed and unexpected JSON after a successful HTTP response.
+
 ## Microsoft Graph OneDrive authentication
 
 OneDrive export uses MSAL with a Microsoft Entra ID **public-client** registration for a personal Microsoft account. To create a registration for your own build:
@@ -104,3 +109,5 @@ Multiple-image and no-image support, including free-text entry, Export All, and 
 The Android receipt workflow, provider profile management, OneDrive authentication, image-first paired export, and provider configuration transfer are implemented and have unit-test coverage. Physical-device validation has confirmed the main workflow, remote LM Studio extraction, profile transfer, and OneDrive export. The Windows PowerShell/Excel COM processor is implemented and verified against disposable copies of the real workbook. Its five-minute Hermes no-agent job is active, uses the repository PowerShell entry point through a thin external wrapper, and delivers reportable outcomes to Discord.
 
 Phase 1 integration work remains in progress. The main open item is validating on-device LiteRT-LM receipt extraction. Run the Windows checks with `pwsh -NoLogo -NoProfile -NonInteractive -File scripts/test-handoff-contract.ps1` and `pwsh -NoLogo -NoProfile -NonInteractive -File scripts/test-hermes-excel-update.ps1`; the latter copies the real workbook to a disposable temp tree and never writes the source. See [the current status](docs/current%20status.md), [the implementation plan](docs/PLAN.md), and [the requirements](docs/requirements.md) for details.
+
+Same-phone client and companion software are implemented. Plans 10a/10b Verify, receipt-photo extraction and typed-expense extraction are ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-12. Offline use, cancellation/retry, performance and background checks remain unconfirmed; see the [companion evidence](docs/10a.mobile-server-companion-verification.md#phone-verification-confirmation) and [expense-app evidence](docs/10b.mobile-server-expense-app-verification.md#phone-verification-confirmation).

@@ -1,5 +1,6 @@
 package com.hugo.smartexpense.app.modelprofile.data
 
+import com.hugo.smartexpense.extraction.CredentialMutationJournal
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ModelProfileRepository
 import com.hugo.smartexpense.extraction.ModelProfileSelectorState
@@ -15,6 +16,15 @@ class RoomModelProfileRepository(
     override fun observeSelectorState(): Flow<ModelProfileSelectorState> =
         dao.observeSelectorState().map { it?.toDomain() ?: ModelProfileSelectorState() }
 
+    override suspend fun getSelectorState() = dao.getSelectorState()?.toDomain() ?: ModelProfileSelectorState()
+    override suspend fun journalEntries() = dao.journalEntries().map { it.toDomain() }
+    override suspend fun recordJournal(entry: CredentialMutationJournal) = dao.recordJournal(CredentialMutationJournalEntity.fromDomain(entry))
+    override suspend fun removeJournal(id: String) = dao.removeJournal(id)
+    override suspend fun publishProfile(profile: ModelProfile, cleanup: CredentialMutationJournal?) =
+        dao.publishProfile(ModelProfileEntity.fromDomain(profile), cleanup?.let(CredentialMutationJournalEntity::fromDomain))
+    override suspend fun deleteProfileWithCleanup(id: String, cleanup: CredentialMutationJournal) =
+        dao.deleteProfileWithCleanup(id, CredentialMutationJournalEntity.fromDomain(cleanup))
+
     override suspend fun getProfile(id: String): ModelProfile? = dao.getProfile(id)?.toDomain()
 
     override suspend fun saveProfile(profile: ModelProfile) = dao.upsertProfile(ModelProfileEntity.fromDomain(profile))
@@ -23,6 +33,9 @@ class RoomModelProfileRepository(
         dao.upsertProfilesAtomically(profiles.map(ModelProfileEntity::fromDomain))
 
     override suspend fun credentialAliasInUse(alias: String): Boolean = dao.credentialAliasInUse(alias)
+
+    override suspend fun publishDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile, stagingId: String) =
+        dao.publishDuplicate(ModelProfileEntity.fromDomain(sourceSnapshot), ModelProfileEntity.fromDomain(copy), stagingId)
 
     override suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) =
         dao.insertDuplicate(ModelProfileEntity.fromDomain(sourceSnapshot), ModelProfileEntity.fromDomain(copy))

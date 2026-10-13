@@ -17,7 +17,7 @@ data class ResolvedReceiptModelProvider(
     val selectedProvider: SelectedModelProvider,
     val remoteProfile: ModelProfile?,
 ) {
-    val tailscaleProfile: ModelProfile? get() = remoteProfile?.takeIf { it.showTailscaleToggle }
+    val tailscaleProfile: ModelProfile? get() = remoteProfile?.takeIf { it.showTailscaleToggle && it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.REMOTE_API }
 }
 
 class SelectedReceiptModelProviderResolver(

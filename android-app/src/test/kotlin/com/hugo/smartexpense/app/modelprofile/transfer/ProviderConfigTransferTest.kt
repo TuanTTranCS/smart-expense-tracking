@@ -18,12 +18,35 @@ import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 class ProviderConfigTransferTest {
+    @Test fun v3SamePhoneRoundTripAndV2LoopbackRemainRemote() = runTest {
+        val phone = savedProfile("phone", "Phone").copy(
+            category = com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER,
+            baseUrl = "http://127.0.0.1:8091/expense/v1",
+            structuredOutputFormat = RemoteStructuredOutputFormat.PROMPT_ONLY_JSON,
+        )
+        val repository = FakeRepository()
+        val service = ProviderConfigTransferService(repository)
+        val json = service.createExportJson(listOf(phone), ModelProfileSelectorState())
+        assertEquals(phone.category, codec.decode(json).profiles.single().category)
+        service.confirmImport(service.previewImport(json))
+        assertEquals(phone.category, repository.profiles.value.single().category)
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("SAME_PHONE_SERVER", "UNKNOWN")) }
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("127.0.0.1", "localhost")) }
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("PROMPT_ONLY_JSON", "JSON_SCHEMA")) }
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("DIRECT_IMAGE", "OCR_TEXT")) }
+        assertFailsWith<ProviderConfigException> { codec.decode(json.replace("\"showTailscaleToggle\":false", "\"showTailscaleToggle\":true")) }
+        val legacy = service.createExportJson(listOf(phone.copy(category = com.hugo.smartexpense.extraction.ApiProfileCategory.REMOTE_API,
+            structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)), ModelProfileSelectorState())
+            .replace("\"schemaVersion\":3", "\"schemaVersion\":2").replace(",\"category\":\"REMOTE_API\"", "")
+        assertEquals(com.hugo.smartexpense.extraction.ApiProfileCategory.REMOTE_API, codec.decode(legacy).profiles.single().category)
+    }
+
     @Test fun v2PreservesCapabilityAndV1DefaultsOff() = runTest {
         val optedIn = savedProfile("one", "Tailscale").copy(showTailscaleToggle = true)
         val repository = FakeRepository()
         val service = ProviderConfigTransferService(repository)
         val json = service.createExportJson(listOf(optedIn), ModelProfileSelectorState())
-        assertContains(json, "\"schemaVersion\":2")
+        assertContains(json, "\"schemaVersion\":3")
         assertTrue(codec.decode(json).profiles.single().showTailscaleToggle)
         service.confirmImport(service.previewImport(json))
         assertTrue(repository.profiles.value.single().showTailscaleToggle)
@@ -33,7 +56,7 @@ class ProviderConfigTransferTest {
         assertEquals(2, repository.profiles.value.size)
         assertTrue(repository.profiles.value.all { it.showTailscaleToggle })
         assertEquals(selectorBefore, repository.selector.value)
-        val legacy = json.replace("\"schemaVersion\":2", "\"schemaVersion\":1")
+        val legacy = json.replace("\"schemaVersion\":3", "\"schemaVersion\":1")
             .replace(",\"showTailscaleToggle\":true", "")
         assertFalse(codec.decode(legacy).profiles.single().showTailscaleToggle)
         assertFailsWith<ProviderConfigException> { codec.decode(json.replace("\"showTailscaleToggle\":true", "\"showTailscaleToggle\":\"true\"")) }
@@ -64,7 +87,7 @@ class ProviderConfigTransferTest {
     @Test fun codecRejectsMalformedUnsupportedEmptyDuplicateAndInvalidProfiles() {
         assertFailsWith<ProviderConfigException> { codec.decode("not-json") }
         assertFailsWith<ProviderConfigException> {
-            codec.decode(codec.encode(config()).replace("\"schemaVersion\":2", "\"schemaVersion\":99"))
+            codec.decode(codec.encode(config()).replace("\"schemaVersion\":3", "\"schemaVersion\":99"))
         }
         assertFailsWith<ProviderConfigException> {
             codec.decode(codec.encode(config()).replace(Regex("\\[\\{.*}\\]"), "[]"))
@@ -142,7 +165,7 @@ class ProviderConfigTransferTest {
         assertEquals(setOf("one", "two", "conflict-copy"), repository.profiles.value.map { it.id }.toSet())
         val copied = repository.profiles.value.single { it.id == "conflict-copy" }
         assertEquals("Imported One", copied.displayName)
-        assertEquals(ModelProfile.credentialAlias("conflict-copy"), copied.credentialAlias)
+        assertTrue(copied.credentialAlias.startsWith(ModelProfile.credentialAlias("conflict-copy") + ":import:"))
         assertEquals(500, copied.createdAtEpochMillis)
         assertEquals(ModelProfileSelectorState("one", true), repository.selector.value)
     }
@@ -154,7 +177,7 @@ class ProviderConfigTransferTest {
         service.confirmImport(service.previewImport(codec.encode(config())))
 
         val imported = repository.profiles.value.single()
-        assertEquals(ModelProfile.credentialAlias(imported.id), imported.credentialAlias)
+        assertTrue(imported.credentialAlias.startsWith(ModelProfile.credentialAlias(imported.id) + ":import:"))
         assertNull(repository.selector.value.selectedRemoteProfileId)
         assertFalse(repository.selector.value.remoteProvidersEnabled)
     }

@@ -7,6 +7,17 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ModelSelectorTest {
+    @Test fun samePhoneSelectionDoesNotRequireRemoteConsentAndMissingSelectionFallsBack() {
+        val phone = OpenAiCompatibleProviderOption("phone", "Phone", ApiEndpointValidator.SAME_PHONE_DEFAULT,
+            "model", RemoteInputMode.DIRECT_IMAGE, "no-key", RemoteStructuredOutputFormat.PROMPT_ONLY_JSON,
+            category = ApiProfileCategory.SAME_PHONE_SERVER)
+        val settings = ModelSelectorSettings(localProvider, listOf(phone), phone.id, false)
+        val selected = ModelSelector().select(settings)
+        assertEquals(ProviderCategory.SAME_PHONE_SERVER, selected.category)
+        assertEquals(phone.id, selected.id)
+        assertFalse(selected.showTailscaleToggle)
+        assertEquals(ProviderCategory.BUILT_IN_ON_DEVICE, ModelSelector().select(settings.copy(selectedProviderId = "missing")).category)
+    }
     private val localProvider = LocalModelProviderOption(
         id = "local-gemma",
         displayName = "Gemma 4 E2B",

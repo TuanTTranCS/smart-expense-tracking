@@ -1,0 +1,1 @@
+{"model":"gemma-4-E2B-it-gpu","messages":[{"role":"system","content":"Return only receipt JSON."},{"role":"user","content":"Hugo Cafe, 2026-10-10, CAD 12.50"}]}

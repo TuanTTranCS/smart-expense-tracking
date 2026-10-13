@@ -1,6 +1,8 @@
 package com.hugo.smartexpense.app.receipt.ui
 
 import android.graphics.BitmapFactory
+import com.hugo.smartexpense.app.ui.CopyableMessage
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -149,7 +151,7 @@ fun ReceiptWorkflowScreen(
         workflowState.exportAllBlockers.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         Text("${workflowState.items.count { it.status == BatchItemStatus.SUCCEEDED }} of ${workflowState.items.size} completed / ${workflowState.items.count { it.status == BatchItemStatus.PROCESSING }} processing / ${workflowState.items.count { it.status == BatchItemStatus.QUEUED }} queued / limit $MAX_BATCH_ITEMS")
         if (workflowState.extracting) OutlinedButton(onClick = onCancelRemaining) { Text("Cancel remaining") }
-        workflowState.batchMessage?.let { Text(it); TextButton(onClick = onUndoRemove) { Text("Undo") } }
+        workflowState.batchMessage?.let { CopyableMessage(it); TextButton(onClick = onUndoRemove) { Text("Undo") } }
         if (workflowState.items.isEmpty()) Card(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.Checkbox(false, { onAddTypedItem() })
@@ -350,7 +352,8 @@ private sealed interface ReceiptImageDisplay {
 
 private fun ModelProfilesUiState.selectedEffectiveProviderId(): String =
     profiles.firstOrNull {
-        selectorState.remoteProvidersEnabled && it.id == selectorState.selectedRemoteProfileId
+        it.id == selectorState.selectedRemoteProfileId &&
+            (it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER || selectorState.remoteProvidersEnabled)
     }?.id ?: SelectedReceiptModelProviderResolver.BUILT_IN_LOCAL_PROVIDER.id
 
 @Composable
@@ -361,40 +364,42 @@ private fun CompactProviderSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.profiles.firstOrNull {
-        state.selectorState.remoteProvidersEnabled && it.id == state.selectorState.selectedRemoteProfileId
+        it.id == state.selectorState.selectedRemoteProfileId &&
+            (it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled)
     }
     Text("Provider for next receipt", style = MaterialTheme.typography.titleMedium)
     OutlinedButton(
         onClick = { expanded = true }, enabled = !state.busy,
         modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Select receipt provider" },
-    ) { Text(selected?.displayName ?: "On-device Gemma") }
+    ) { Text(selected?.let { "${it.displayName} (${if (it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER) "Same-phone server" else "Remote API"})" } ?: "Built-in on-device Gemma") }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
         DropdownMenuItem(
-            text = { Text("On-device Gemma") },
+            text = { Text("Built-in on-device Gemma") },
             onClick = { expanded = false; onSelectLocal() },
         )
         state.profiles.forEach { profile ->
             DropdownMenuItem(
                 text = {
                     Text(
-                        if (state.selectorState.remoteProvidersEnabled) profile.displayName
-                        else "${profile.displayName} â€” enable in Settings",
+                        if (profile.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER) "${profile.displayName} (Same-phone server)"
+                        else if (state.selectorState.remoteProvidersEnabled) "${profile.displayName} (Remote API)"
+                        else "${profile.displayName} — enable remote access in Settings",
                     )
                 },
-                enabled = state.selectorState.remoteProvidersEnabled,
+                enabled = profile.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled,
                 onClick = { expanded = false; onSelectRemote(profile) },
             )
         }
     }
     Text(state.effectiveProviderSummary, style = MaterialTheme.typography.bodySmall)
-    if (!state.selectorState.remoteProvidersEnabled && state.profiles.isNotEmpty()) {
+    if (!state.selectorState.remoteProvidersEnabled && state.profiles.any { it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.REMOTE_API }) {
         Text("Remote providers must be enabled in Settings before selection.")
     }
 }
 
 @Composable
 private fun ProviderVerificationMessage(state: ProviderVerificationState) {
-    Card(Modifier.fillMaxWidth()) { Text(state.message, Modifier.padding(12.dp)) }
+    Card(Modifier.fillMaxWidth()) { CopyableMessage(state.message, Modifier.padding(12.dp)) }
 }
 
 @Composable
@@ -407,7 +412,7 @@ private fun OneDriveStatusCard(
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(state.summary, style = MaterialTheme.typography.titleMedium)
             accountName?.let { Text(it) }
-            Text(state.detail)
+            CopyableMessage(state.detail)
             state.recoveryLabel?.let { label ->
                 Button(onClick = { onRecovery(state.recoveryAction) }) { Text(label) }
             }
@@ -425,7 +430,7 @@ internal fun ReceiptReviewEditor(
     debugOutputEnabled: Boolean,
 ) {
     Text(if (state.manualEntryRequired) "Manual receipt entry" else "Review extracted receipt", style = MaterialTheme.typography.headlineSmall)
-    Text(state.message)
+    CopyableMessage(state.message)
     val editable = !exporting && state.exportExpenseId == null
     ReviewField("Receipt date (yyyy-MM-dd)", state.receiptDate, editable) { onStateChange(state.copy(receiptDate = it)) }
     ReviewField("Merchant", state.merchantName, editable) { onStateChange(state.copy(merchantName = it)) }
@@ -440,7 +445,7 @@ internal fun ReceiptReviewEditor(
     Text("Extraction status: ${state.extractionStatus}")
     Text("Confidence: ${state.confidence.ifBlank { "not available" }}")
     val validationErrors = state.expenseValidationErrors()
-    validationErrors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+    validationErrors.forEach { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
     Button(enabled = canExport && validationErrors.isEmpty() && !exporting && !state.exportComplete, onClick = onExport) {
         Text(when {
             exporting -> "Exporting"
@@ -452,7 +457,7 @@ internal fun ReceiptReviewEditor(
     if (!canExport) Text("Connect and verify OneDrive access before exporting.")
     if (debugOutputEnabled && state.exportJsonPreview != null) {
         Text(
-            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON â€” not published",
+            if (state.exportComplete) "Published handoff JSON" else "Generated handoff JSON (not published)",
             style = MaterialTheme.typography.titleMedium,
         )
         DebugOutputField("Handoff JSON", state.exportJsonPreview)

@@ -14,6 +14,9 @@ import com.hugo.smartexpense.app.modelprofile.data.ModelProfileDatabase
 import com.hugo.smartexpense.app.modelprofile.data.RoomModelProfileRepository
 import com.hugo.smartexpense.app.modelprofile.domain.RemoteModelClientFactory
 import com.hugo.smartexpense.app.modelprofile.domain.SelectedReceiptModelProviderResolver
+import com.hugo.smartexpense.app.modelprofile.domain.ProfileConfigurationCoordinator
+import com.hugo.smartexpense.app.receipt.ui.WorkflowProviderSnapshot
+import com.hugo.smartexpense.extraction.OperationCredentialSnapshot
 import com.hugo.smartexpense.app.modelprofile.migration.AndroidLegacyModelProfilePreferences
 import com.hugo.smartexpense.app.modelprofile.migration.LegacyModelProfileMigrator
 import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigDocumentStore
@@ -43,6 +46,7 @@ class MainActivity : ComponentActivity() {
         val settingsRepository = SharedPreferencesAppSettingsRepository(preferences, detectedName)
         val keyStore = AndroidApiKeyStore(this)
         val profileRepository = RoomModelProfileRepository(ModelProfileDatabase.getInstance(this).modelProfileDao())
+        val configurationCoordinator = ProfileConfigurationCoordinator(profileRepository, keyStore)
         val providerConfigDocumentStore = ProviderConfigDocumentStore(contentResolver)
         val resolver = SelectedReceiptModelProviderResolver(profileRepository)
         val remoteClientFactory = RemoteModelClientFactory(keyStore)
@@ -72,13 +76,14 @@ class MainActivity : ComponentActivity() {
         val profilesFactory = ModelProfilesViewModel.Factory {
             ModelProfilesViewModel(
                 repository = profileRepository,
+                configurationCoordinator = configurationCoordinator,
                 credentialStore = keyStore,
                 resolver = resolver,
                 testService = DefaultModelProfileTestService(keyStore) { RemoteModelClientFactory(it) },
                 migrator = migrator,
                 catalogService = com.hugo.smartexpense.app.modelprofile.domain.CompatibleProviderModelCatalogService(),
                 tailscaleController = com.hugo.smartexpense.app.tailscale.AndroidTailscaleController(this),
-                tailscaleProbe = com.hugo.smartexpense.app.tailscale.SavedProfileReadinessProbe(keyStore),
+                tailscaleProbe = com.hugo.smartexpense.app.tailscale.SavedProfileReadinessProbe(keyStore, configurationCoordinator = configurationCoordinator),
                 vpnStatusSource = com.hugo.smartexpense.app.connectivity.AndroidVpnStatusSource(this),
             )
         }
@@ -91,6 +96,12 @@ class MainActivity : ComponentActivity() {
         val workflowFactory = ReceiptWorkflowViewModel.Factory {
             ReceiptWorkflowViewModel(
                 settingsRepository = settingsRepository,
+                captureProvider = {
+                    val selected = configurationCoordinator.selectedSnapshot().configuration
+                    WorkflowProviderSnapshot(selected?.profile, OperationCredentialSnapshot(
+                        selected?.let { mapOf(it.profile.credentialAlias to it.apiKey) } ?: emptyMap(),
+                    ))
+                },
                 extractReceipt = { uri, reduceOversizedImages, remoteProfileSnapshot, imageSnapshot, onImageLoaded ->
                     val image = imageSnapshot ?: imageLoader.load(uri, reduceOversizedImages)
                     onImageLoaded(image)

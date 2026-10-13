@@ -37,7 +37,7 @@ class DuplicateModelProfilePersistenceTest {
                 val repository = RoomModelProfileRepository(savedDatabase.modelProfileDao())
                 repository.saveProfile(source)
                 repository.selectProfile(sourceId)
-                repository.setRemoteProvidersEnabled(false)
+                repository.setRemoteProvidersEnabled(true)
                 val result = DuplicateModelProfileService(repository, store, { copyId }, { 100 }).duplicate(sourceId)
                 assertTrue(result is DuplicateModelProfileResult.Success)
                 val copy = (result as DuplicateModelProfileResult.Success).copy
@@ -55,7 +55,7 @@ class DuplicateModelProfilePersistenceTest {
                 assertEquals("Saved Provider (copy)", copy.displayName)
                 assertEquals("original-test-key", reopenedStore.get(copyAlias))
                 assertEquals("original-test-key", reopenedStore.get(sourceAlias))
-                assertEquals(ModelProfileSelectorState(sourceId, false), repository.observeSelectorState().first())
+                assertEquals(ModelProfileSelectorState(sourceId, true), repository.observeSelectorState().first())
 
                 val exported = ProviderConfigTransferService(repository).createExportJson(
                     repository.observeProfiles().first(), repository.observeSelectorState().first(),

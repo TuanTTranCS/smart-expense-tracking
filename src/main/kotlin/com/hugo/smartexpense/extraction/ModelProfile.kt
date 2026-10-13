@@ -1,6 +1,7 @@
 package com.hugo.smartexpense.extraction
 
 import java.net.URI
+import kotlinx.coroutines.flow.first
 
 data class ModelProfile(
     val id: String,
@@ -13,6 +14,8 @@ data class ModelProfile(
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
     val showTailscaleToggle: Boolean = false,
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
+    val configurationError: String? = null,
 ) {
     fun asProviderOption(): OpenAiCompatibleProviderOption = OpenAiCompatibleProviderOption(
         id = id,
@@ -23,6 +26,8 @@ data class ModelProfile(
         apiKeyAlias = credentialAlias,
         structuredOutputFormat = structuredOutputFormat,
         showTailscaleToggle = showTailscaleToggle,
+        category = category,
+        configurationError = configurationError,
     )
 
     companion object {
@@ -39,7 +44,20 @@ data class ModelProfileDraft(
     val structuredOutputFormat: RemoteStructuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA,
     val apiKey: String = "",
     val showTailscaleToggle: Boolean = false,
-)
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
+    val credentialEdit: CredentialEdit = CredentialEdit.Keep,
+) {
+    override fun toString(): String = "ModelProfileDraft(id=$id, category=$category, credential=[redacted])"
+}
+
+sealed interface CredentialEdit {
+    data object Keep : CredentialEdit
+    data object Clear : CredentialEdit
+    class Replace(val value: String) : CredentialEdit {
+        init { require(value.isNotBlank() && value.none { it.code < 32 || it.code == 127 }) { "Enter a nonblank header-safe API key." } }
+        override fun toString(): String = "Replace([redacted])"
+    }
+}
 
 data class ModelProfileValidationResult(
     val normalizedDisplayName: String,
@@ -54,6 +72,10 @@ enum class ModelProfileField {
     DISPLAY_NAME,
     BASE_URL,
     MODEL_ID,
+    CATEGORY,
+    INPUT_MODE,
+    OUTPUT_FORMAT,
+    TAILSCALE,
 }
 
 class ModelProfileValidator {
@@ -63,7 +85,14 @@ class ModelProfileValidator {
         val modelId = draft.modelId.trim()
         val errors = buildMap {
             if (displayName.isBlank()) put(ModelProfileField.DISPLAY_NAME, "Display name is required.")
-            if (!isValidBaseUrl(baseUrl)) put(ModelProfileField.BASE_URL, "Enter an absolute HTTP or HTTPS URL.")
+            runCatching { ApiEndpointValidator.normalize(draft.baseUrl, draft.category) }.exceptionOrNull()?.let {
+                put(ModelProfileField.BASE_URL, it.message ?: "Correct the API endpoint.")
+            }
+            if (draft.category == ApiProfileCategory.SAME_PHONE_SERVER) {
+                if (draft.inputMode != RemoteInputMode.DIRECT_IMAGE) put(ModelProfileField.INPUT_MODE, "Same-phone server requires direct image input.")
+                if (draft.structuredOutputFormat != RemoteStructuredOutputFormat.PROMPT_ONLY_JSON) put(ModelProfileField.OUTPUT_FORMAT, "Same-phone server requires Prompt-only JSON.")
+                if (draft.showTailscaleToggle) put(ModelProfileField.TAILSCALE, "Same-phone server cannot enable Tailscale.")
+            }
             if (modelId.isBlank()) put(ModelProfileField.MODEL_ID, "Model ID is required.")
         }
         return ModelProfileValidationResult(displayName, baseUrl, modelId, errors)
@@ -91,13 +120,31 @@ interface ModelProfileRepository {
     suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) {
         throw UnsupportedOperationException("Duplicate insertion is unavailable.")
     }
+    suspend fun publishDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile, stagingId: String) {
+        insertDuplicate(sourceSnapshot, copy)
+        removeJournal(stagingId)
+    }
     suspend fun credentialAliasInUse(alias: String): Boolean {
         throw UnsupportedOperationException("Credential reference lookup is unavailable.")
     }
     suspend fun selectProfile(id: String?)
     suspend fun setRemoteProvidersEnabled(enabled: Boolean)
     suspend fun deleteProfile(id: String)
+    suspend fun getSelectorState(): ModelProfileSelectorState = observeSelectorState().first()
+    suspend fun journalEntries(): List<CredentialMutationJournal> = emptyList()
+    suspend fun recordJournal(entry: CredentialMutationJournal) { throw UnsupportedOperationException("Credential journal unavailable.") }
+    suspend fun removeJournal(id: String) { throw UnsupportedOperationException("Credential journal unavailable.") }
+    suspend fun publishProfile(profile: ModelProfile, cleanup: CredentialMutationJournal?) {
+        saveProfile(profile)
+        cleanup?.let { recordJournal(it) }
+    }
+    suspend fun deleteProfileWithCleanup(id: String, cleanup: CredentialMutationJournal) {
+        recordJournal(cleanup)
+        deleteProfile(id)
+    }
 }
+
+data class CredentialMutationJournal(val id: String, val profileId: String, val alias: String, val phase: String)
 
 interface WritableApiKeyStore : ApiKeyStore {
     fun put(alias: String, value: String)

@@ -94,7 +94,7 @@ class SettingsScreenTest {
         compose.onNodeWithText("Model ID").performTextInput("manual-id")
         compose.onNodeWithText("Load models").performScrollTo().performClick()
         compose.waitUntil(5_000) { pending != null }
-        compose.onNodeWithText("Loading models...").assertIsDisplayed()
+        compose.onNodeWithText("Loading models...").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { settingsVisible = false }
         compose.onNodeWithText("Receipt screen").assertIsDisplayed()
         compose.runOnIdle {

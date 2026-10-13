@@ -5,6 +5,9 @@ enum class ModelProviderType {
     OPENAI_COMPATIBLE_API,
 }
 
+enum class ApiProfileCategory { REMOTE_API, SAME_PHONE_SERVER }
+enum class ProviderCategory { BUILT_IN_ON_DEVICE, REMOTE_API, SAME_PHONE_SERVER }
+
 enum class RemoteInputMode {
     DIRECT_IMAGE,
     OCR_TEXT,
@@ -13,6 +16,7 @@ enum class RemoteInputMode {
 enum class RemoteStructuredOutputFormat {
     JSON_OBJECT,
     JSON_SCHEMA,
+    PROMPT_ONLY_JSON,
 }
 
 data class LocalModelProviderOption(
@@ -31,6 +35,8 @@ data class OpenAiCompatibleProviderOption(
     val apiKeyAlias: String,
     val structuredOutputFormat: RemoteStructuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT,
     val showTailscaleToggle: Boolean = false,
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
+    val configurationError: String? = null,
 )
 
 data class ModelSelectorSettings(
@@ -48,6 +54,8 @@ data class SelectedModelProvider(
     val supportsDirectImageInput: Boolean,
     val baseUrl: String? = null,
     val showTailscaleToggle: Boolean = false,
+    val category: ProviderCategory = if (type == ModelProviderType.LOCAL_ON_DEVICE)
+        ProviderCategory.BUILT_IN_ON_DEVICE else ProviderCategory.REMOTE_API,
 )
 
 class ModelSelector {
@@ -55,7 +63,8 @@ class ModelSelector {
         val requestedProviderId = settings.selectedProviderId
         val selectedRemoteProvider = settings.openAiCompatibleProviders.firstOrNull { it.id == requestedProviderId }
 
-        if (settings.remoteProvidersEnabled && selectedRemoteProvider != null) {
+        if (selectedRemoteProvider != null && selectedRemoteProvider.configurationError == null && (settings.remoteProvidersEnabled ||
+                selectedRemoteProvider.category == ApiProfileCategory.SAME_PHONE_SERVER)) {
             return SelectedModelProvider(
                 id = selectedRemoteProvider.id,
                 type = ModelProviderType.OPENAI_COMPATIBLE_API,
@@ -63,7 +72,8 @@ class ModelSelector {
                 modelId = selectedRemoteProvider.modelId,
                 supportsDirectImageInput = selectedRemoteProvider.inputMode == RemoteInputMode.DIRECT_IMAGE,
                 baseUrl = normalizeBaseUrl(selectedRemoteProvider.baseUrl),
-                showTailscaleToggle = selectedRemoteProvider.showTailscaleToggle,
+                showTailscaleToggle = selectedRemoteProvider.category == ApiProfileCategory.REMOTE_API && selectedRemoteProvider.showTailscaleToggle,
+                category = ProviderCategory.valueOf(selectedRemoteProvider.category.name),
             )
         }
 

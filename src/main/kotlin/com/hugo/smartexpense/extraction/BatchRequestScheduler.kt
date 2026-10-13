@@ -17,6 +17,11 @@ data class BatchProcessingPolicy(
         require(maxConcurrency in 1..3)
         require(startSpacingMillis >= 0 && itemDeadlineMillis > 0 && maxAttempts in 1..3)
     }
+    fun effective(category: ProviderCategory) = when (category) {
+        ProviderCategory.BUILT_IN_ON_DEVICE -> copy(maxConcurrency = 1, startSpacingMillis = 0)
+        ProviderCategory.SAME_PHONE_SERVER -> copy(maxConcurrency = 1, startSpacingMillis = 0, maxAttempts = 1)
+        ProviderCategory.REMOTE_API -> this
+    }
     fun effective(onDevice: Boolean) = if (onDevice) copy(maxConcurrency = 1, startSpacingMillis = 0) else this
 }
 
@@ -59,22 +64,44 @@ class ProviderRequestGate(private val clock: BatchClock = MonotonicBatchClock) {
 /** Context follows IO dispatcher switches; blocking adapters can disconnect their active socket. */
 object InferenceExecution {
     data class Scope(val job: Job, val gate: ProviderRequestGate, val spacingMillis: Long,
-        val credentials: OperationCredentialSnapshot = OperationCredentialSnapshot())
+        val credentials: OperationCredentialSnapshot = OperationCredentialSnapshot(),
+        val category: ProviderCategory = ProviderCategory.REMOTE_API,
+        val deadlineNanos: Long = System.nanoTime() + 180_000_000_000L,
+        val explicitRecovery: Boolean = false)
     val current = ThreadLocal<Scope?>()
     val sharedGate = ProviderRequestGate()
+    private val samePhoneSlot = java.util.concurrent.Semaphore(1, true)
     private val outboundSlots = java.util.concurrent.Semaphore(3, true)
-    fun <R> request(verification: Boolean = false, operation: () -> R): R {
-        val permits = if (verification) 3 else 1
-        // A verification takes the complete budget, so it cannot overlap a batch inference.
-        while (!outboundSlots.tryAcquire(permits, 50, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            current.get()?.job?.ensureActive()
-        }
+    fun remainingMillis(): Long = current.get()?.let {
+        it.job.ensureActive()
+        val remaining = (it.deadlineNanos - System.nanoTime()) / 1_000_000
+        if (remaining <= 0) throw java.net.SocketTimeoutException("Expense extraction timed out.")
+        remaining
+    } ?: 180_000
+    fun <R> request(verification: Boolean = false, category: ProviderCategory = current.get()?.category ?: ProviderCategory.REMOTE_API, operation: () -> R): R {
+        val prior = current.get()
+        if (prior == null) current.set(Scope(Job(), sharedGate, if (verification) 3_500 else 0, category = category))
+        val samePhone = category == ProviderCategory.SAME_PHONE_SERVER
+        var localAcquired = false
+        var outboundAcquired = false
+        val permits = if (verification && !samePhone) 3 else 1
         try {
-            if (current.get() != null) beforeRequest()
-            else runBlocking { sharedGate.awaitStart(if (verification) 3_500 else 0) }
+            if (samePhone) {
+                while (!samePhoneSlot.tryAcquire(50, java.util.concurrent.TimeUnit.MILLISECONDS)) remainingMillis()
+                localAcquired = true
+            }
+            while (!outboundSlots.tryAcquire(permits, 50, java.util.concurrent.TimeUnit.MILLISECONDS)) remainingMillis()
+            outboundAcquired = true
+            remainingMillis()
+            if (!samePhone) beforeRequest()
             return operation()
-        } finally { outboundSlots.release(permits) }
+        } finally {
+            if (outboundAcquired) outboundSlots.release(permits)
+            if (localAcquired) samePhoneSlot.release()
+            if (prior == null) { current.get()?.job?.cancel(); current.remove() }
+        }
     }
+
     fun beforeRequest() {
         val scope = current.get() ?: return
         scope.job.ensureActive()
@@ -84,8 +111,8 @@ object InferenceExecution {
 }
 
 /** Secrets live only in an active operation scope, never in UI state or persisted batch snapshots. */
-class OperationCredentialSnapshot {
-    private val values = mutableMapOf<String, String?>()
+class OperationCredentialSnapshot(initialValues: Map<String, String?> = emptyMap()) {
+    private val values = initialValues.toMutableMap()
     @Synchronized fun get(alias: String, store: ApiKeyStore): String? {
         if (!values.containsKey(alias)) values[alias] = store.get(alias)
         return values[alias]
@@ -102,17 +129,20 @@ class BatchRequestScheduler(
         items: List<T>,
         policy: BatchProcessingPolicy = BatchProcessingPolicy(),
         onDevice: Boolean = false,
+        category: ProviderCategory = if (onDevice) ProviderCategory.BUILT_IN_ON_DEVICE else ProviderCategory.REMOTE_API,
+        credentials: OperationCredentialSnapshot = OperationCredentialSnapshot(),
+        explicitRecovery: Boolean = false,
         operation: suspend (T) -> R,
         onResult: suspend (T, Result<R>) -> Unit,
     ) = supervisorScope {
-        val effective = policy.effective(onDevice)
+        val effective = policy.effective(category)
         val slots = Semaphore(effective.maxConcurrency)
-        val credentials = OperationCredentialSnapshot()
         items.map { item -> launch {
             slots.withPermit {
                 val result = try {
                     Result.success(withTimeout(effective.itemDeadlineMillis) {
-                        val scope = InferenceExecution.Scope(coroutineContext.job, gate, effective.startSpacingMillis, credentials)
+                        val scope = InferenceExecution.Scope(coroutineContext.job, gate, effective.startSpacingMillis, credentials, category,
+                            System.nanoTime() + effective.itemDeadlineMillis * 1_000_000, explicitRecovery)
                         withContext(InferenceExecution.current.asContextElement(scope)) {
                             var attempt = 0
                             while (true) {

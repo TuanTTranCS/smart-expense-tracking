@@ -1,5 +1,7 @@
 package com.hugo.smartexpense.app.connectivity
 
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.ApiEndpointValidator
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.SocketTimeoutException
@@ -17,6 +19,7 @@ class ModelsEndpointInput(
     val modelsPath: String = "models",
     val connectTimeoutMillis: Int = 5_000,
     val readTimeoutMillis: Int = 5_000,
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
 ) {
     override fun toString(): String = "ModelsEndpointInput(credentials redacted)"
 }
@@ -37,7 +40,9 @@ enum class ModelsEndpointFailure { INVALID_INPUT, INVALID_LIST, TOO_LARGE, TIMEO
 fun modelsEndpointUrl(input: ModelsEndpointInput): String? = runCatching {
     require(input.connectTimeoutMillis > 0 && input.readTimeoutMillis > 0)
     require(input.modelsPath.isNotBlank() && !input.modelsPath.startsWith("/"))
-    val base = URI(input.baseUrl.trim().trimEnd('/') + "/")
+    val normalized = ApiEndpointValidator.normalize(input.baseUrl, input.category)
+    if (input.category == ApiProfileCategory.SAME_PHONE_SERVER) require(input.modelsPath == "models")
+    val base = URI(normalized + "/")
     require(base.scheme in listOf("http", "https") && base.host != null)
     require(base.rawUserInfo == null && base.rawQuery == null && base.rawFragment == null)
     val resolved = base.resolve(input.modelsPath)

@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -20,6 +21,8 @@ import com.hugo.smartexpense.app.modelprofile.domain.AvailableProviderModel
 import com.hugo.smartexpense.app.modelprofile.domain.ProviderModelCatalogResult
 import com.hugo.smartexpense.app.modelprofile.domain.ProviderModelCatalogService
 import com.hugo.smartexpense.app.modelprofile.domain.SelectedReceiptModelProviderResolver
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.CredentialMutationJournal
 import com.hugo.smartexpense.extraction.DurableCredentialWriteResult
 import com.hugo.smartexpense.extraction.RemoteInputMode
 import com.hugo.smartexpense.extraction.RemoteStructuredOutputFormat
@@ -70,14 +73,19 @@ class ModelProfilesPanelTest {
         compose.onNodeWithText("Model ID").performTextInput("model-a")
         compose.onNodeWithText("API key").performTextInput("secret-value")
         compose.onNodeWithContentDescription("Show Tailscale control on Main").performScrollTo().performClick()
-        compose.onNodeWithText("Save and select").performScrollTo().performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(5_000) { repository.profiles.value.isNotEmpty() }
+        check(repository.selector.value.selectedRemoteProfileId == null)
+        check(!repository.selector.value.remoteProvidersEnabled)
+        compose.runOnIdle { viewModel.setRemoteProvidersEnabled(true) }
+        compose.onNodeWithText("Select").performScrollTo().performClick()
 
         compose.onNodeWithText("Home server").assertIsDisplayed()
         compose.onNodeWithText("Selected for next extraction").assertIsDisplayed()
         compose.onNodeWithText("Home server (model-a) will be used for the next extraction.").assertIsDisplayed()
         compose.onNodeWithText("Export all profiles").performClick()
         check(exportRequests == 1)
-        check(credentials.values["remote-provider:ui-profile"] == "secret-value")
+        check(credentials.values[repository.profiles.value.single().credentialAlias] == "secret-value")
         check(repository.profiles.value.single().showTailscaleToggle)
     }
     @Test fun duplicateActionIdentifiesSourceAndKeepsSelectionAndCredentialsIndependent() {
@@ -142,6 +150,35 @@ class ModelProfilesPanelTest {
         compose.onNodeWithText("Model ID").assertTextContains("manual")
     }
 
+    @Test fun samePhoneEditorLocksCapabilitiesKeepsKeyClearTransientAndSavesWithoutOptIn() {
+        val repository = UiRepository()
+        val credentials = UiCredentials()
+        val vm = ModelProfilesViewModel(repository, credentials, SelectedReceiptModelProviderResolver(repository),
+            ModelProfileTestService { _, _ -> ProviderTestResult.Success }, idFactory = { "phone" })
+        panel(vm)
+        compose.onNodeWithText("Add profile").performClick()
+        compose.onNodeWithText("Same-phone server", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Base URL").assertTextContains("http://127.0.0.1:8080/v1")
+        compose.onNodeWithText("Receipt input: Direct image").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Structured output: Prompt-only JSON").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Show Tailscale control on Main").assertDoesNotExist()
+        compose.onNodeWithText("Display name").performScrollTo().performTextInput("Phone")
+        compose.onNodeWithText("Model ID").performScrollTo().performTextInput("vision")
+        compose.onNodeWithText("Clear").performScrollTo().performClick()
+        compose.onNodeWithText("Clear credential when saved").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performScrollTo().performClick()
+        compose.onNodeWithText("Discard unsaved changes?").assertIsDisplayed()
+        compose.onNodeWithText("Keep editing").performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(5_000) { repository.profiles.value.size == 1 }
+        check(repository.profiles.value.single().category == ApiProfileCategory.SAME_PHONE_SERVER)
+        check(repository.selector.value.selectedRemoteProfileId == null)
+        check(!repository.selector.value.remoteProvidersEnabled)
+        compose.onNodeWithText("Select").performScrollTo().performClick()
+        compose.waitUntil(5_000) { repository.selector.value.selectedRemoteProfileId == "phone" }
+        check(!repository.selector.value.remoteProvidersEnabled)
+    }
+
     private fun panel(vm: ModelProfilesViewModel) {
         compose.setContent {
             val state by vm.uiState.collectAsState()
@@ -161,6 +198,8 @@ internal class UiRepository : ModelProfileRepository {
     override fun observeProfiles() = profiles
     override fun observeSelectorState() = selector
     override suspend fun getProfile(id: String) = profiles.value.firstOrNull { it.id == id }
+    override suspend fun recordJournal(entry: CredentialMutationJournal) {}
+    override suspend fun removeJournal(id: String) {}
     override suspend fun saveProfile(profile: ModelProfile) { profiles.value = profiles.value.filterNot { it.id == profile.id } + profile }
     override suspend fun credentialAliasInUse(alias: String) = profiles.value.any { it.credentialAlias == alias }
     override suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) {

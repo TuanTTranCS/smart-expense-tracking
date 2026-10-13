@@ -1,5 +1,6 @@
 package com.hugo.smartexpense.app.modelprofile.domain
 
+import com.hugo.smartexpense.extraction.CredentialMutationJournal
 import com.hugo.smartexpense.extraction.DurableCredentialWriteResult
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ModelProfileRepository
@@ -23,16 +24,21 @@ class DuplicateModelProfileService(
     private val credentialStore: WritableApiKeyStore,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val coordinator: ProfileConfigurationCoordinator = ProfileConfigurationCoordinator(repository, credentialStore),
 ) {
-    suspend fun duplicate(sourceId: String): DuplicateModelProfileResult {
+    suspend fun duplicate(sourceId: String): DuplicateModelProfileResult = coordinator.coordinated { duplicateLocked(sourceId) }
+
+    private suspend fun duplicateLocked(sourceId: String): DuplicateModelProfileResult {
         var source: ModelProfile? = null
         var copy: ModelProfile? = null
         var ownsCredential = false
         var insertAttempted = false
+        var staged: CredentialMutationJournal? = null
         try {
             return withContext(Dispatchers.IO) {
                 val saved = repository.getProfile(sourceId)
                     ?: return@withContext failure("The source profile no longer exists. Refresh Settings and retry.")
+                saved.configurationError?.let { return@withContext failure(it) }
                 source = saved
                 val id = idFactory()
                 val alias = ModelProfile.credentialAlias(id)
@@ -46,6 +52,9 @@ class DuplicateModelProfileService(
                     createdAtEpochMillis = now, updatedAtEpochMillis = now,
                 )
                 copy = duplicate
+                val entry = CredentialMutationJournal(UUID.randomUUID().toString(), id, alias, "STAGED")
+                repository.recordJournal(entry)
+                staged = entry
                 val key = credentialStore.get(saved.credentialAlias)
                 currentCoroutineContext().ensureActive()
                 if (key != null) {
@@ -55,6 +64,7 @@ class DuplicateModelProfileService(
                         DurableCredentialWriteResult.STORED -> Unit
                         DurableCredentialWriteResult.ALREADY_EXISTS -> {
                             ownsCredential = false
+                            repository.removeJournal(entry.id)
                             return@withContext failure("A new credential identity could not be allocated. Retry duplication.")
                         }
                         DurableCredentialWriteResult.FAILED -> error("Credential storage failed.")
@@ -62,7 +72,7 @@ class DuplicateModelProfileService(
                 }
                 currentCoroutineContext().ensureActive()
                 insertAttempted = true
-                repository.insertDuplicate(saved, duplicate)
+                repository.publishDuplicate(saved, duplicate, entry.id)
                 DuplicateModelProfileResult.Success(saved.displayName, duplicate)
             }
         } catch (error: Exception) {
@@ -91,6 +101,7 @@ class DuplicateModelProfileService(
                         "The profile was not duplicated, and its temporary credential could not be removed. Retry after checking secure storage.",
                     )
                 }
+                staged?.let { runCatching { repository.removeJournal(it.id) } }
                 failure(if (error is CancellationException) "Profile duplication was cancelled. Retry when ready."
                     else "The profile could not be duplicated. Check secure storage and retry.")
             }

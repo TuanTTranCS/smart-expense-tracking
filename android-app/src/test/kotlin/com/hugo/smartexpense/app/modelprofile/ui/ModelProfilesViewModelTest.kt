@@ -11,6 +11,9 @@ import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigProfileV1
 import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigSelectorV1
 import com.hugo.smartexpense.app.modelprofile.transfer.ProviderConfigTransferService
 import com.hugo.smartexpense.extraction.ModelProfile
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.CredentialEdit
+import com.hugo.smartexpense.extraction.DurableCredentialWriteResult
 import com.hugo.smartexpense.extraction.ModelProfileDraft
 import com.hugo.smartexpense.extraction.ProviderTestResult
 import com.hugo.smartexpense.extraction.RemoteInputMode
@@ -71,7 +74,7 @@ class ModelProfilesViewModelTest {
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
-    @Test fun saveAndSelectPersistsNormalizedMetadataAndTargetCredential() = runTest(dispatcher) {
+    @Test fun savePersistsNormalizedMetadataAndCredentialWithoutSelecting() = runTest(dispatcher) {
         val repository = FakeRepository()
         val credentials = TestCredentials()
         val viewModel = viewModel(repository, credentials)
@@ -88,8 +91,8 @@ class ModelProfilesViewModelTest {
         val saved = repository.profiles.value.single()
         assertEquals("Home server", saved.displayName)
         assertEquals("https://example.test/v1", saved.baseUrl)
-        assertEquals("profile-id", repository.selector.value.selectedRemoteProfileId)
-        assertTrue(repository.selector.value.remoteProvidersEnabled)
+        assertEquals(null, repository.selector.value.selectedRemoteProfileId)
+        assertEquals(false, repository.selector.value.remoteProvidersEnabled)
         assertEquals("secret", credentials.values[saved.credentialAlias])
     }
 
@@ -268,7 +271,7 @@ class ModelProfilesViewModelTest {
         vm.loadModels()
         advanceUntilIdle()
         assertEquals(listOf("stored-secret", "draft-secret", null), keys)
-        assertEquals(null, credentials.values[saved.credentialAlias])
+        assertEquals("stored-secret", credentials.values[saved.credentialAlias])
         assertEquals(saved, repository.profiles.value.single())
     }
 
@@ -400,6 +403,10 @@ class ModelProfilesViewModelTest {
         assertEquals(null, repository.selector.value.selectedRemoteProfileId)
         vm.saveProfile(selectAfterSave = true)
         advanceUntilIdle()
+        vm.setRemoteProvidersEnabled(true)
+        advanceUntilIdle()
+        vm.selectProfile(repository.profiles.value.single())
+        advanceUntilIdle()
         val next = SelectedReceiptModelProviderResolver(repository).resolve(repository.profiles.value, repository.selector.value)
         assertEquals("org/New:V2", next.remoteProfile!!.modelId)
     }
@@ -415,6 +422,10 @@ class ModelProfilesViewModelTest {
         var inserts = 0
         val repository = object : ModelProfileRepository by backing {
             override suspend fun credentialAliasInUse(alias: String) = backing.profiles.value.any { it.credentialAlias == alias }
+            override suspend fun publishDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile, stagingId: String) {
+                insertDuplicate(sourceSnapshot, copy)
+                backing.removeJournal(stagingId)
+            }
             override suspend fun insertDuplicate(sourceSnapshot: ModelProfile, copy: ModelProfile) {
                 inserts++
                 entered.complete(Unit)
@@ -444,6 +455,141 @@ class ModelProfilesViewModelTest {
         assertEquals(1, inserts)
         assertEquals(selector, backing.selector.value)
         assertEquals(null, vm.uiState.value.importPreview)
+    }
+
+    @Test fun samePhoneDefaultsSaveAndSelectWithoutRemoteOptIn() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val vm = viewModel(repository, TestCredentials())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        vm.addProfile()
+        vm.changeCategory(ApiProfileCategory.SAME_PHONE_SERVER)
+        advanceUntilIdle()
+        val defaults = vm.uiState.value.editor!!.draft
+        assertEquals("http://127.0.0.1:8080/v1", defaults.baseUrl)
+        assertEquals(RemoteStructuredOutputFormat.PROMPT_ONLY_JSON, defaults.structuredOutputFormat)
+        assertEquals(false, defaults.showTailscaleToggle)
+        vm.updateDraft(defaults.copy(displayName = "Phone", modelId = "vision", baseUrl = "http://127.0.0.1:8091/expense/v1"))
+        vm.saveProfile(selectAfterSave = true)
+        advanceUntilIdle()
+        val saved = repository.profiles.value.single()
+        assertEquals(ApiProfileCategory.SAME_PHONE_SERVER, saved.category)
+        assertEquals(null, repository.selector.value.selectedRemoteProfileId)
+        assertEquals(false, repository.selector.value.remoteProvidersEnabled)
+        vm.selectProfile(saved)
+        advanceUntilIdle()
+        assertEquals(saved.id, repository.selector.value.selectedRemoteProfileId)
+        assertEquals(false, repository.selector.value.remoteProvidersEnabled)
+    }
+
+    @Test fun clearIsUnsavedIntentAndVerificationDoesNotUseSavedKey() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val saved = profile().copy(category = ApiProfileCategory.SAME_PHONE_SERVER,
+            baseUrl = "http://127.0.0.1:8080/v1", structuredOutputFormat = RemoteStructuredOutputFormat.PROMPT_ONLY_JSON)
+        repository.profiles.value = listOf(saved)
+        val credentials = TestCredentials(mutableMapOf(saved.credentialAlias to "saved-key"))
+        var key: String? = "not-called"
+        val vm = viewModel(repository, credentials, tester = ModelProfileTestService { _, override -> key = override; ProviderTestResult.Success })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        vm.editProfile(saved)
+        vm.clearCredential()
+        vm.testProfile()
+        advanceUntilIdle()
+        assertEquals("", key)
+        assertEquals("saved-key", credentials.values[saved.credentialAlias])
+        assertTrue(vm.uiState.value.editor!!.hasUnsavedChanges)
+        vm.cancelEdit()
+        advanceUntilIdle()
+        assertEquals("saved-key", credentials.values[saved.credentialAlias])
+        vm.editProfile(saved)
+        vm.clearCredential()
+        vm.saveProfile()
+        advanceUntilIdle()
+        assertEquals(null, credentials.values[saved.credentialAlias])
+        assertEquals(null, credentials.values[repository.profiles.value.single().credentialAlias])
+    }
+
+    @Test fun modelCategoryAndLifecycleEditsCancelVerificationAndIgnoreLateResponse() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        var continuation: Continuation<ProviderTestResult>? = null
+        val vm = viewModel(repository, TestCredentials(), tester = ModelProfileTestService { _, _ -> suspendCoroutine { continuation = it } })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        vm.addProfile()
+        vm.updateDraft(ModelProfileDraft(displayName = "Old", baseUrl = "https://example.test/v1", modelId = "old", apiKey = "key"))
+        vm.testProfile()
+        runCurrent()
+        vm.changeCategory(ApiProfileCategory.SAME_PHONE_SERVER)
+        continuation!!.resume(ProviderTestResult.Success)
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.editor!!.testStatus)
+        assertEquals(ApiProfileCategory.SAME_PHONE_SERVER, vm.uiState.value.editor!!.draft.category)
+    }
+
+    @Test fun startupRecoveryRunsWithoutMigratorAndFailureCanBeRetried() = runTest(dispatcher) {
+        val backing = FakeRepository()
+        var pending = true
+        var cleanupSucceeds = false
+        val repository = object : ModelProfileRepository by backing {
+            override suspend fun journalEntries() = if (pending) listOf(com.hugo.smartexpense.extraction.CredentialMutationJournal("journal", "id", "orphan", "CLEANUP")) else emptyList()
+            override suspend fun removeJournal(id: String) { pending = false }
+        }
+        val store = object : WritableApiKeyStore by TestCredentials() {
+            override fun removeDurably(alias: String) = cleanupSucceeds
+        }
+        val vm = ModelProfilesViewModel(repository, store, SelectedReceiptModelProviderResolver(repository),
+            ModelProfileTestService { _, _ -> ProviderTestResult.Success })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+        assertTrue(pending)
+        assertTrue(vm.uiState.value.message!!.contains("recovery"))
+        cleanupSucceeds = true
+        vm.recoverCredentials()
+        advanceUntilIdle()
+        assertEquals(false, pending)
+        assertEquals("Credential cleanup completed.", vm.uiState.value.message)
+    }
+
+    @Test fun remoteConsentDisablePreservesSamePhoneVerificationButPauseInvalidatesLateResult() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val saved = profile().copy(category = ApiProfileCategory.SAME_PHONE_SERVER,
+            baseUrl = "http://127.0.0.1:8080/v1", structuredOutputFormat = RemoteStructuredOutputFormat.PROMPT_ONLY_JSON)
+        repository.profiles.value = listOf(saved)
+        repository.selector.value = repository.selector.value.copy(selectedRemoteProfileId = saved.id, remoteProvidersEnabled = true)
+        var continuation: Continuation<ProviderTestResult>? = null
+        val vm = viewModel(repository, TestCredentials(), tester = ModelProfileTestService { _, _ -> suspendCoroutine { continuation = it } })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.verifySelectedProvider { error("same phone is selected") }
+        runCurrent()
+        vm.setRemoteProvidersEnabled(false)
+        runCurrent()
+        assertEquals(true, vm.uiState.value.verification?.busy)
+        continuation!!.resume(ProviderTestResult.Success)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.verification!!.message.contains("Connected"))
+        vm.verifySelectedProvider { error("same phone is selected") }
+        runCurrent()
+        vm.setConnectivityMonitoring(false)
+        continuation!!.resume(ProviderTestResult.Success)
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.verification)
+    }
+
+    @Test fun remoteConsentDisableCancelsRemoteVerificationAndIgnoresLateResult() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val saved = profile()
+        repository.profiles.value = listOf(saved)
+        repository.selector.value = repository.selector.value.copy(selectedRemoteProfileId = saved.id, remoteProvidersEnabled = true)
+        var continuation: Continuation<ProviderTestResult>? = null
+        val vm = viewModel(repository, TestCredentials(), tester = ModelProfileTestService { _, _ -> suspendCoroutine { continuation = it } })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.verifySelectedProvider { error("remote is selected") }
+        runCurrent()
+        vm.setRemoteProvidersEnabled(false)
+        runCurrent()
+        continuation!!.resume(ProviderTestResult.Success)
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.verification)
     }
 
     private fun viewModel(
@@ -482,4 +628,10 @@ private class TestCredentials(val values: MutableMap<String, String> = mutableMa
     override fun get(alias: String) = values[alias]
     override fun put(alias: String, value: String) { values[alias] = value }
     override fun remove(alias: String) { values.remove(alias) }
+    override fun putDurablyIfAbsent(alias: String, value: String): DurableCredentialWriteResult {
+        if (values.containsKey(alias)) return DurableCredentialWriteResult.ALREADY_EXISTS
+        values[alias] = value
+        return DurableCredentialWriteResult.STORED
+    }
+    override fun removeDurably(alias: String): Boolean { values.remove(alias); return true }
 }

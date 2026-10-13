@@ -1,6 +1,8 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
+
+✅ Done (2026-10-12): Hugo confirmed **Verify, receipt-photo extraction and typed-expense extraction worked on Pixel 7** for plans [10a](10a.mobile-server-companion-plan.md) and [10b](10b.mobile-server-expense-app-integration-plan.md). This supersedes earlier blanket phone-verification/paired-photo Pending statements. Offline use, cancellation/retry/native drain, accuracy/latency/memory and background acceptance remain unconfirmed; see both verification records.
 
 ## Stack Direction
 
@@ -10,8 +12,8 @@ Android app:
 - Jetpack Compose
 - Android Photo Picker and CameraX
 - Room for model-profile metadata, selector state, and local export history
-- Provider-based extraction with local Google AI Edge/LiteRT-LM as the default provider
-- Optional user-configured OpenAI-compatible API providers
+- Three provider categories behind one extraction interface: Built-in on-device Google AI Edge/LiteRT-LM (default/fallback), Same-phone server (optional supported companion fork), and Remote API (optional with explicit remote opt-in)
+- Saved OpenAI-compatible profiles for Same-phone server and Remote API; protocol does not determine inference location
 - Settings screen with persistent multi-profile management and a Model Selector
 - Single-activity Compose navigation with a focused Main receipt workflow and separate Settings destination
 
@@ -46,15 +48,21 @@ Excel integration:
 
 ## Architecture
 
+✅ Done (2026-10-12): Companion terminal cleanup now dispatches outside native callbacks and retains admission through cleanup, including cancellation before native start. Expense verification failures show safe request-stage/HTTP/code diagnostics; **81 shared/244 Android unit tests** and the expense debug build/test compilation pass. See [the Pixel 7 investigation and companion checks](10a.mobile-server-companion-verification.md#callback-cleanup-and-verification-diagnostics-revision). Resolution of the reported Pixel 7 Verify failure and native/paired/physical acceptance remain Pending.
+
+Same-phone server implementation details: [companion plan](10a.mobile-server-companion-plan.md) and [expense-app integration plan](10b.mobile-server-expense-app-integration-plan.md), under [the integration goal](10.mobile-server-integration-goal.md). Companion and expense-app software are implemented. Expense verification passes 79 shared/244 Android unit tests, APK build/test compilation and 40 full emulator tests; GPT 6 Astra review/fixes/re-review are complete. See [client evidence](10b.mobile-server-expense-app-verification.md). [The exact GPU test](10a.mobile-server-companion-verification.md) remains blocked by the AVD's missing OpenCL; native-drain proof, paired native extraction and physical validation remain pending.
+
 ```mermaid
 flowchart LR
     A["Android receipt app"] --> S["Settings Model Selector"]
     S --> P["Room model profiles and selector state"]
     P --> B["Immutable selected-provider snapshot"]
     A --> B
-    B --> L["Local Google AI Edge/LiteRT-LM"]
-    B --> R["OpenAI-compatible API"]
+    B --> L["Built-in on-device Google AI Edge/LiteRT-LM"]
+    B --> M["Same-phone server: supported companion on 127.0.0.1"]
+    B --> R["Remote API: LAN, Tailscale or cloud; remote opt-in"]
     L --> C["User review and correction"]
+    M --> C
     R --> C
     C --> U["Upload normalized receipt JPEG"]
     U --> D["Publish final JSON handoff"]
@@ -89,7 +97,7 @@ Planning artifact:
 Goals:
 
 - Evaluate and spike optional OpenAI-compatible API extraction behind the same structured extraction contract first.
-- Define the Settings Model Selector contract for local and remote providers.
+- Define the Settings Model Selector contract for Built-in on-device, Same-phone server, and Remote API providers.
 - Verify the Google AI Edge API or LiteRT-LM Android extraction path after the API-provider path is proven. Parser/validation spike is implemented; Android device/model execution is pending.
 - Prototype receipt extraction, including whether OCR/preprocessing is required.
 - ✅ Done: Implement and unit-test paired Microsoft Graph upload from Android: receipt JPEG first, then the final JSON handoff. Physical-device verification remains.
@@ -106,7 +114,9 @@ Status: In Progress
 
 Goals:
 
-- Mixed image/typed batch implementation and verification: see [the batch support plan](9.multiple-and-no-image-support-plan.md). Stage private processed images, persist Room metadata, use stable item/transaction revisions, grouped review, explicit Extract all, and shared provider budgets. Initial limit is 20 inputs, on-device concurrency one, remote concurrency one to three with 3.5-second default spacing. Keep keys outside batch state. Hardware benchmark and processor deployment evidence are tracked separately.
+- Mixed image/typed batch implementation and verification: see [the batch support plan](9.multiple-and-no-image-support-plan.md). Stage private processed images, persist Room metadata, use stable item/transaction revisions, grouped review, explicit Extract all, and shared provider budgets. Initial limit is 20 inputs, Built-in on-device concurrency one, Remote API concurrency one to three with 3.5-second default spacing. Planned Same-phone server concurrency is one with a 180-second extraction deadline; remote start spacing applies only to Remote API. Keep keys outside batch state. Hardware benchmark and processor deployment evidence are tracked separately.
+- ✅ Done (2026-10-10): Aligned requirements using Option B's three provider categories (`REQ-M-001..035`, `REQ-A-023..024`, `REQ-UI-002/009..010`, `NFR-001..003A`, `AC-008/012/019/024/031/034/041/052..060`). Same-phone selection is independent of remote opt-in; Built-in on-device remains default/fallback. Companion implementation and device validation remain Pending under [the integration goal](10.mobile-server-integration-goal.md).
+- ✅ Done (2026-10-11): Expense-app same-phone profiles, literal-loopback configurable endpoint, optional secure keys/journal recovery, Prompt-only JSON, Room/transfer v3, discovery/verification, immutable category-aware scheduling and acknowledged cancellation are implemented and client-tested. Existing Remote API and handoff contracts remain covered. Full `AC-057..060` acceptance remains open for native/paired/physical checks recorded in 10b; available client software verification is complete.
 - ✅ Done (2026-10-08): No-image cards expose **Extract / Retry extraction** for just that item and visible **Confirm and export**, disabled until current valid results and OneDrive readiness. Shared scheduling/provider snapshots, draft preservation, edit confirmation, busy guards and immutable exports remain in force (`REQ-A-030`, `AC-051`). All 60 shared/217 Android unit tests and debug assembly pass; see the batch plan for emulator verification. Physical-device validation remains pending.
 - ✅ Done: Free-text no-image revision implemented and automatically verified on 2026-10-06. Every source field is an optional hint; Merchant or Notes alone can describe the full expense. Combined-draft eligibility excludes blank/default-only CAD input. Text-only LLM extraction uses evidence from every field, arithmetic/natural-language dates/currency, and visible merchant typo suggestions; original strings/notes remain separate. Unresolved facts and invalid structured/manual results block export. All 59 shared tests, 188 Android unit tests, 27 emulator UI tests, and debug assembly pass against `REQ-A-022`, `REQ-A-025`, `AC-043`, `AC-047`. Live provider interpretation and physical-device checks remain pending; see the batch plan verification record.
 
@@ -197,7 +207,7 @@ Testing:
 - Make every processing step idempotent.
 - Require human review before export in the MVP.
 - Keep cloud AI disabled by default, and require explicit user opt-in before sending receipt data to a remote model provider.
-- Keep local and remote extraction behind one provider abstraction and one normalized output contract.
+- Keep Built-in on-device, Same-phone server, and Remote API extraction behind one provider abstraction and one normalized output contract. Same-phone selection is explicit and independent of remote opt-in; only Remote API may transmit inference data outside the phone.
 - Upload only the normalized sub-200-KB receipt JPEG required by the expense workflow; Amazon Photos may remain the independent full-resolution backup.
 
 ## Definition of Done

@@ -38,6 +38,7 @@ jacoco/
 
 # Project-local tooling artifacts
 .codex-remote-attachments/
+.artifacts/
 
 # Optional: ignore generated app bundles/APKs if ever produced locally
 *.apk

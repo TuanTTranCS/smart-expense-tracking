@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.update
 import java.util.UUID
 import com.hugo.smartexpense.extraction.BatchRequestScheduler
 import com.hugo.smartexpense.extraction.BatchProcessingPolicy
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.ProviderCategory
+import com.hugo.smartexpense.extraction.OperationCredentialSnapshot
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,6 +56,19 @@ data class ReceiptWorkflowUiState(
         selectedImage != null && !selectedImageUri.isNullOrBlank() && !extracting && !exporting
 }
 
+/** An admission snapshot lives only in the running coroutine, never in saved workflow state. */
+class WorkflowProviderSnapshot(
+    val profile: ModelProfile?,
+    val credentials: OperationCredentialSnapshot = OperationCredentialSnapshot(),
+) {
+    val category: ProviderCategory get() = when (profile?.category) {
+        null -> ProviderCategory.BUILT_IN_ON_DEVICE
+        ApiProfileCategory.REMOTE_API -> ProviderCategory.REMOTE_API
+        ApiProfileCategory.SAME_PHONE_SERVER -> ProviderCategory.SAME_PHONE_SERVER
+    }
+    override fun toString() = "WorkflowProviderSnapshot([REDACTED])"
+}
+
 class ReceiptWorkflowViewModel(
     private val settingsRepository: AppSettingsRepository,
     private val extractReceipt: suspend (
@@ -73,6 +89,7 @@ class ReceiptWorkflowViewModel(
     private val exportReviewedBatch: (suspend (List<Pair<String, ReceiptReviewState>>, (ReceiptExportRecord) -> Unit) -> List<ReceiptExportRecord>)? = null,
     private val loadExportBatchRecords: (suspend (String) -> List<ReceiptExportRecord>)? = null,
     private val loadSavedExportRecord: (suspend (String) -> ReceiptExportRecord?)? = null,
+    private val captureProvider: suspend (ModelProfile?) -> WorkflowProviderSnapshot = { WorkflowProviderSnapshot(it) },
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(ReceiptWorkflowUiState())
     val uiState: StateFlow<ReceiptWorkflowUiState> = mutableUiState.asStateFlow()
@@ -253,18 +270,22 @@ class ReceiptWorkflowViewModel(
         val debugSnapshot = settingsRepository.settings.value.debugOutputEnabled
         val token = UUID.randomUUID().toString()
         runId = token
-        runUsesRemote = profile != null
+        runUsesRemote = profile?.category == ApiProfileCategory.REMOTE_API
         mutate { it.copy(extracting = true, items = it.items.map { item -> if (candidates.any { c -> c.itemId == item.itemId }) item.copy(status = BatchItemStatus.QUEUED, error = null) else item }) }
         batchJob = viewModelScope.launch {
             try {
-                scheduler.run(candidates, policy, onDevice = profile == null, operation = { item ->
+                val admitted = withContext(operationDispatcher) { captureProvider(profile) }
+                val frozenProfile = admitted.profile
+                runUsesRemote = admitted.category == ProviderCategory.REMOTE_API
+                scheduler.run(candidates, policy, category = admitted.category, credentials = admitted.credentials,
+                    explicitRecovery = only != null, operation = { item ->
                     if (runId != token || mutableUiState.value.items.none { it.itemId == item.itemId }) throw CancellationException()
                     itemJobs[item.itemId] = kotlinx.coroutines.currentCoroutineContext()[Job]!!
                     itemChange(item.itemId) { it.copy(status = BatchItemStatus.PROCESSING) }
                     withContext(operationDispatcher) {
-                        val reviews = if (item.noImage) requireNotNull(reviewTyped)(item.draft, profile) else {
+                        val reviews = if (item.noImage) requireNotNull(reviewTyped)(item.draft, frozenProfile) else {
                             val image = item.image ?: requireNotNull(batchStore).read(requireNotNull(item.preparedUri), item.mimeType)
-                            extractReceipt(item.sourceUri.orEmpty(), false, profile, image) {}
+                            extractReceipt(item.sourceUri.orEmpty(), false, frozenProfile, image) {}
                         }
                         if (item.noImage && reviews.size != 1) error("Typed input must return exactly one transaction.")
                         if (reviews.isEmpty() || reviews.all { it.manualEntryRequired }) error(reviews.firstOrNull()?.message ?: "No valid extraction returned.")
@@ -287,6 +308,9 @@ class ReceiptWorkflowViewModel(
                             } else "") })
                     }
                 })
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (runId == token) mutate { it.copy(batchMessage = "Provider configuration could not be captured. Check the saved profile and credential recovery state, then retry.") }
             } finally {
                 if (runId == token) { runId = null; mutate { it.copy(extracting = false, items = it.items.map { item -> if (item.status in listOf(BatchItemStatus.QUEUED, BatchItemStatus.PROCESSING)) item.copy(status = BatchItemStatus.CANCELLED) else item }) } }
             }
@@ -401,24 +425,38 @@ class ReceiptWorkflowViewModel(
 
     private fun runExtraction(uri: String, remoteProfileSnapshot: ModelProfile?, imageSnapshot: ReceiptImage?) {
         val reduceSnapshot = settingsRepository.settings.value.reduceOversizedImages
+        val token = UUID.randomUUID().toString()
+        runId = token
+        runUsesRemote = remoteProfileSnapshot?.category == ApiProfileCategory.REMOTE_API
         mutableUiState.value = mutableUiState.value.copy(
             extracting = true,
             reviews = emptyList(),
             selectedImage = imageSnapshot,
             selectedImageUri = uri,
         )
-        viewModelScope.launch {
-            val result = runCatching {
-                withContext(operationDispatcher) {
-                    extractReceipt(uri, reduceSnapshot, remoteProfileSnapshot, imageSnapshot) { image ->
-                        mutableUiState.value = mutableUiState.value.copy(selectedImage = image)
-                    }
-                }
-            }.getOrElse { if (it is CancellationException) throw it else listOf(ReceiptReviewState.manual(it.message ?: "The receipt could not be processed.")) }
-            mutableUiState.value = mutableUiState.value.copy(
-                extracting = false,
-                reviews = result.map { it.copy(sourceImageUri = uri) },
-            )
+        batchJob = viewModelScope.launch {
+            try {
+                val admitted = withContext(operationDispatcher) { captureProvider(remoteProfileSnapshot) }
+                runUsesRemote = admitted.category == ProviderCategory.REMOTE_API
+                scheduler.run(listOf(uri), category = admitted.category, credentials = admitted.credentials,
+                    explicitRecovery = imageSnapshot != null, operation = {
+                        withContext(operationDispatcher) {
+                            extractReceipt(uri, reduceSnapshot, admitted.profile, imageSnapshot) { image ->
+                                if (runId == token) mutableUiState.update { it.copy(selectedImage = image) }
+                            }
+                        }
+                    }, onResult = { _, result ->
+                        if (runId == token) mutableUiState.update { state -> state.copy(
+                            reviews = result.getOrElse { listOf(ReceiptReviewState.manual(it.message ?: "The receipt could not be processed.")) }
+                                .map { it.copy(sourceImageUri = uri) },
+                        ) }
+                    })
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (runId == token) mutableUiState.update { it.copy(reviews = listOf(ReceiptReviewState.manual("Check the saved provider configuration and credential recovery state, then retry."))) }
+            } finally {
+                if (runId == token) { runId = null; mutableUiState.update { it.copy(extracting = false) } }
+            }
         }
     }
 

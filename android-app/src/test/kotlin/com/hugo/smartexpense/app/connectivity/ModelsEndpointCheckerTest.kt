@@ -1,5 +1,6 @@
 package com.hugo.smartexpense.app.connectivity
 
+import com.hugo.smartexpense.extraction.ApiProfileCategory
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicReference
@@ -12,6 +13,18 @@ import kotlin.test.*
 
 @RunWith(RobolectricTestRunner::class)
 class ModelsEndpointCheckerTest {
+    @Test fun samePhoneDiscoveryValidatesLexicalLoopbackAndPreservesPrefix() {
+        val category = ApiProfileCategory.SAME_PHONE_SERVER
+        assertEquals("http://127.0.0.1:8091/expense/v1/models",
+            modelsEndpointUrl(ModelsEndpointInput("http://127.0.0.1:8091/expense/v1/", category = category)))
+        listOf("http://localhost:8080/v1", "http://127.1:8080/v1", "https://127.0.0.1:8080/v1",
+            "http://127.0.0.1/v1", "http://127.0.0.1:8080/", "http://127.0.0.1:8080/a/../v1",
+            "http://127.0.0.1:8080/v1?secret=value", "http://10.0.0.2:8080/v1").forEach {
+            assertNull(modelsEndpointUrl(ModelsEndpointInput(it, category = category)), it)
+        }
+        assertNull(modelsEndpointUrl(ModelsEndpointInput("http://127.0.0.1:8080/v1", modelsPath = "../models", category = category)))
+    }
+
     @Test fun supportsCustomBasePathCredentialsTimeoutsAndReturnsModelIds() = runBlocking {
         val method = AtomicReference<String>()
         val body = AtomicReference<String>()

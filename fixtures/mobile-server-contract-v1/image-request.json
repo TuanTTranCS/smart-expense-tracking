@@ -1,0 +1,1 @@
+{"model":"gemma-4-E2B-it-gpu","messages":[{"role":"user","content":[{"type":"text","text":"Return receipt JSON."},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAQSURBVBhXY/j///9/BmQAAD3UA/0BtXjLAAAAAElFTkSuQmCC"}}]}]}

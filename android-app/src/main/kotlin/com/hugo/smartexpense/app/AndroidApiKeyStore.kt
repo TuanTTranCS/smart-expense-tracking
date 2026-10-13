@@ -18,11 +18,11 @@ class AndroidApiKeyStore(context: Context) : WritableApiKeyStore {
     override fun get(alias: String): String? = preferences.getString(alias, null)
 
     override fun put(alias: String, value: String) {
-        preferences.edit().putString(alias, value).apply()
+        check(preferences.edit().putString(alias, value).commit()) { "Secure credential storage failed." }
     }
 
     override fun remove(alias: String) {
-        preferences.edit().remove(alias).apply()
+        check(preferences.edit().remove(alias).commit()) { "Secure credential cleanup is pending." }
     }
 
     override fun putDurablyIfAbsent(alias: String, value: String): DurableCredentialWriteResult = synchronized(preferences) {

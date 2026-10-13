@@ -1,5 +1,7 @@
 package com.hugo.smartexpense.app.modelprofile.transfer
 
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.app.modelprofile.domain.ProfileConfigurationCoordinator
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ModelProfileDraft
 import com.hugo.smartexpense.extraction.ModelProfileRepository
@@ -24,6 +26,7 @@ data class ProviderConfigProfileV1(
     val inputMode: RemoteInputMode,
     val structuredOutputFormat: RemoteStructuredOutputFormat,
     val showTailscaleToggle: Boolean = false,
+    val category: ApiProfileCategory = ApiProfileCategory.REMOTE_API,
 )
 
 data class ProviderConfigSelectorV1(
@@ -77,6 +80,7 @@ class ProviderConfigJsonCodec(
                         .key("inputMode").value(profile.inputMode.name)
                         .key("structuredOutputFormat").value(profile.structuredOutputFormat.name)
                         .key("showTailscaleToggle").value(profile.showTailscaleToggle)
+                        .key("category").value(profile.category.name)
                         .endObject()
                 }
             }
@@ -127,6 +131,11 @@ class ProviderConfigJsonCodec(
                     val outputFormat = profileObject.requiredEnum<RemoteStructuredOutputFormat>(
                         "structuredOutputFormat", index,
                     )
+                    val category = if (version < 3) ApiProfileCategory.REMOTE_API else
+                        profileObject.requiredEnum<ApiProfileCategory>("category", index)
+                    if (version < 3 && outputFormat == RemoteStructuredOutputFormat.PROMPT_ONLY_JSON)
+                        throw ProviderConfigException("Legacy configuration has an unsupported output mode.")
+                    val tailscale = if (version == 1) false else profileObject.requiredBoolean("showTailscaleToggle")
                     val validation = validator.validate(
                         ModelProfileDraft(
                             id = id,
@@ -135,6 +144,8 @@ class ProviderConfigJsonCodec(
                             modelId = profileObject.requiredString("modelId"),
                             inputMode = inputMode,
                             structuredOutputFormat = outputFormat,
+                            category = category,
+                            showTailscaleToggle = tailscale,
                         ),
                     )
                     if (!validation.isValid) {
@@ -149,7 +160,8 @@ class ProviderConfigJsonCodec(
                             modelId = validation.normalizedModelId,
                             inputMode = inputMode,
                             structuredOutputFormat = outputFormat,
-                            showTailscaleToggle = if (version == 1) false else profileObject.requiredBoolean("showTailscaleToggle"),
+                            showTailscaleToggle = tailscale,
+                            category = category,
                         ),
                     )
                 }
@@ -204,7 +216,7 @@ class ProviderConfigJsonCodec(
     }
 
     companion object {
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
     }
 }
 
@@ -213,11 +225,13 @@ class ProviderConfigTransferService(
     private val codec: ProviderConfigJsonCodec = ProviderConfigJsonCodec(),
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val coordinator: ProfileConfigurationCoordinator? = null,
 ) {
     fun createExportJson(
         profiles: List<ModelProfile>,
         selectorState: ModelProfileSelectorState,
     ): String {
+        if (profiles.any { it.configurationError != null }) throw ProviderConfigException("Repair invalid profile categories before exporting.")
         if (profiles.isEmpty()) throw ProviderConfigException("There are no provider profiles to export.")
         return codec.encode(
             ProviderConfigExportV1(
@@ -235,6 +249,7 @@ class ProviderConfigTransferService(
                         profile.inputMode,
                         profile.structuredOutputFormat,
                         profile.showTailscaleToggle,
+                        profile.category,
                     )
                 },
             ),
@@ -247,7 +262,13 @@ class ProviderConfigTransferService(
         return ProviderConfigImportPreview(config, config.profiles.map { it.id }.filterTo(mutableSetOf()) { it in existingIds })
     }
 
-    suspend fun confirmImport(preview: ProviderConfigImportPreview): ProviderConfigImportResult {
+    suspend fun confirmImport(preview: ProviderConfigImportPreview): ProviderConfigImportResult =
+        coordinator?.coordinated { importProfiles(preview) }
+            ?: ProfileConfigurationCoordinator.withRepositoryLock(repository) { importProfiles(preview) }
+
+    private suspend fun importProfiles(preview: ProviderConfigImportPreview): ProviderConfigImportResult {
+        // Revalidate the preview at the mutation boundary, including programmatic callers.
+        codec.decode(codec.encode(preview.config))
         val existingIds = repository.observeProfiles().first().mapTo(mutableSetOf()) { it.id }
         val reservedIds = (existingIds + preview.config.profiles.map { it.id }).toMutableSet()
         var copiedConflictCount = 0
@@ -267,10 +288,11 @@ class ProviderConfigTransferService(
                 modelId = imported.modelId,
                 inputMode = imported.inputMode,
                 structuredOutputFormat = imported.structuredOutputFormat,
-                credentialAlias = ModelProfile.credentialAlias(finalId),
+                credentialAlias = "${ModelProfile.credentialAlias(finalId)}:import:${UUID.randomUUID()}",
                 createdAtEpochMillis = now,
                 updatedAtEpochMillis = now,
                 showTailscaleToggle = imported.showTailscaleToggle,
+                category = imported.category,
             )
         }
         repository.saveProfiles(profiles)

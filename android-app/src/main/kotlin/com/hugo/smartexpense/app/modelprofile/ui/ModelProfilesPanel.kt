@@ -1,5 +1,6 @@
 package com.hugo.smartexpense.app.modelprofile.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -33,6 +34,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.hugo.smartexpense.app.ui.CopyableMessage
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.CredentialEdit
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ModelProfileDraft
 import com.hugo.smartexpense.extraction.ModelProfileField
@@ -48,6 +52,7 @@ fun ModelProfilesPanel(
     onImportProfiles: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Built-in on-device | Same-phone server | Remote API", style = MaterialTheme.typography.labelLarge)
         Text("Model Selector", style = MaterialTheme.typography.headlineMedium)
         Text(state.effectiveProviderSummary)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -63,8 +68,10 @@ fun ModelProfilesPanel(
             )
         }
         Text("Remote testing and extraction contact the configured endpoint and may send receipt data.")
+        TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy) { Text("Recover credentials") }
         state.message?.let {
-            Card(Modifier.fillMaxWidth()) { Text(it, Modifier.padding(12.dp)) }
+            Card(Modifier.fillMaxWidth()) { CopyableMessage(it, Modifier.padding(12.dp)) }
+            if (it.contains("cleanup", ignoreCase = true)) TextButton(onClick = viewModel::recoverCredentials, enabled = !state.busy) { Text("Retry credential recovery") }
         }
 
         val editor = state.editor
@@ -130,17 +137,19 @@ private fun ProfileList(
     }
     state.profiles.forEach { profile ->
         val selected = state.selectorState.selectedRemoteProfileId == profile.id &&
-            state.selectorState.remoteProvidersEnabled
+            (profile.category == ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(if (profile.category == ApiProfileCategory.SAME_PHONE_SERVER) "Same-phone server" else "Remote API", style = MaterialTheme.typography.labelLarge)
                 Text(profile.displayName, style = MaterialTheme.typography.titleMedium)
                 Text("${profile.modelId} • ${profile.inputMode.name.lowercase().replace('_', ' ')}")
                 Text(profile.baseUrl)
+                profile.configurationError?.let { CopyableMessage(it, color = MaterialTheme.colorScheme.error) }
                 if (selected) Text("Selected for next extraction", color = MaterialTheme.colorScheme.primary)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.selectProfile(profile) },
-                        enabled = !selected && state.selectorState.remoteProvidersEnabled && !state.busy,
+                        enabled = !selected && (profile.category == ApiProfileCategory.SAME_PHONE_SERVER || state.selectorState.remoteProvidersEnabled) && !state.busy,
                     ) { Text(if (selected) "Selected" else "Select") }
                     OutlinedButton(onClick = { viewModel.editProfile(profile) }, enabled = !state.busy) { Text("Edit") }
                     TextButton(onClick = { deleteTarget = profile }, enabled = !state.busy) { Text("Delete") }
@@ -190,7 +199,11 @@ private fun ProfileEditor(
     val locallyValid = remember(draft) { ModelProfileValidator().validate(draft).isValid }
     fun update(value: ModelProfileDraft) = viewModel.updateDraft(value)
 
-    Text(if (draft.id == null) "Add remote profile" else "Edit remote profile", style = MaterialTheme.typography.headlineSmall)
+    Text(if (draft.id == null) "Add API profile" else "Edit API profile", style = MaterialTheme.typography.headlineSmall)
+    Text("Provider category")
+    EnumChoice(draft.category == ApiProfileCategory.REMOTE_API, "Remote API", { viewModel.changeCategory(ApiProfileCategory.REMOTE_API) }, !busy)
+    EnumChoice(draft.category == ApiProfileCategory.SAME_PHONE_SERVER, "Same-phone server", { viewModel.changeCategory(ApiProfileCategory.SAME_PHONE_SERVER) }, !busy)
+    if (draft.category == ApiProfileCategory.SAME_PHONE_SERVER) Text("Install the supported companion, load a vision model, and start it manually. Match its listening port, API path and optional key. Remote opt-in is independent.")
     ProfileField(
         value = draft.displayName,
         onValueChange = { update(draft.copy(displayName = it)) },
@@ -227,63 +240,73 @@ private fun ProfileEditor(
             if (editor.modelPickerOpen) ModelPicker(catalog, viewModel)
         }
         ModelCatalogState.Empty -> Text("The endpoint is reachable but returned no models. Enter a model ID manually.")
-        is ModelCatalogState.Failed -> Text("Models could not be loaded: ${catalog.reason} Manual model entry is available.")
+        is ModelCatalogState.Failed -> CopyableMessage("Models could not be loaded: ${catalog.reason} Manual model entry is available.")
         ModelCatalogState.Cancelled -> Text("Model loading cancelled. Your draft was kept.")
     }
     OutlinedTextField(
         value = draft.apiKey,
-        onValueChange = { update(draft.copy(apiKey = it)) },
-        label = { Text(if (editor.hasStoredCredential) "Replacement API key (leave blank to retain)" else "API key") },
+        onValueChange = { viewModel.updateApiKey(it) },
+        label = { Text(if (draft.category == ApiProfileCategory.SAME_PHONE_SERVER) "Optional API key" else "API key") },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         enabled = !busy,
         modifier = Modifier.fillMaxWidth(),
     )
-    if (editor.hasStoredCredential) {
-        OutlinedButton(onClick = viewModel::clearCredential, enabled = !busy) { Text("Clear stored credential") }
-    }
-    Text("Receipt input")
-    EnumChoice(
-        selected = draft.inputMode == RemoteInputMode.DIRECT_IMAGE,
-        label = "Direct image",
-        onClick = { update(draft.copy(inputMode = RemoteInputMode.DIRECT_IMAGE)) },
-        enabled = !busy,
-    )
-    EnumChoice(
-        selected = draft.inputMode == RemoteInputMode.OCR_TEXT,
-        label = "OCR text",
-        onClick = { update(draft.copy(inputMode = RemoteInputMode.OCR_TEXT)) },
-        enabled = !busy,
-    )
-    Text("Structured output")
-    EnumChoice(
-        selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA,
-        label = "JSON schema",
-        onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA)) },
-        enabled = !busy,
-    )
-    EnumChoice(
-        selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_OBJECT,
-        label = "JSON object",
-        onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)) },
-        enabled = !busy,
-    )
+    Text(when (draft.credentialEdit) {
+        CredentialEdit.Keep -> "Keep saved credential"
+        CredentialEdit.Clear -> "Clear credential when saved"
+        is CredentialEdit.Replace -> "Replace credential when saved"
+    })
     Row {
-        Checkbox(
-            checked = draft.showTailscaleToggle,
-            onCheckedChange = { update(draft.copy(showTailscaleToggle = it)) },
-            enabled = !busy,
-            modifier = Modifier.semantics { contentDescription = "Show Tailscale control on Main" },
-        )
-        Text("Show Tailscale control on Main", Modifier.padding(top = 12.dp))
+        TextButton(onClick = viewModel::keepCredential, enabled = !busy) { Text("Keep") }
+        TextButton(onClick = viewModel::clearCredential, enabled = !busy) { Text("Clear") }
     }
-    Text("When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.")
-    Text("Testing sends a connectivity prompt to this remote endpoint. It does not save or select the profile.")
-    editor.testStatus?.let { Text(it) }
+    if (draft.category == ApiProfileCategory.REMOTE_API) {
+        Text("Receipt input")
+        EnumChoice(
+            selected = draft.inputMode == RemoteInputMode.DIRECT_IMAGE,
+            label = "Direct image",
+            onClick = { update(draft.copy(inputMode = RemoteInputMode.DIRECT_IMAGE)) },
+            enabled = !busy,
+        )
+        EnumChoice(
+            selected = draft.inputMode == RemoteInputMode.OCR_TEXT,
+            label = "OCR text",
+            onClick = { update(draft.copy(inputMode = RemoteInputMode.OCR_TEXT)) },
+            enabled = !busy,
+        )
+        Text("Structured output")
+        EnumChoice(
+            selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA,
+            label = "JSON schema",
+            onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_SCHEMA)) },
+            enabled = !busy,
+        )
+        EnumChoice(
+            selected = draft.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_OBJECT,
+            label = "JSON object",
+            onClick = { update(draft.copy(structuredOutputFormat = RemoteStructuredOutputFormat.JSON_OBJECT)) },
+            enabled = !busy,
+        )
+        Row {
+            Checkbox(
+                checked = draft.showTailscaleToggle,
+                onCheckedChange = { update(draft.copy(showTailscaleToggle = it)) },
+                enabled = !busy,
+                modifier = Modifier.semantics { contentDescription = "Show Tailscale control on Main" },
+            )
+            Text("Show Tailscale control on Main", Modifier.padding(top = 12.dp))
+        }
+        Text("When this profile is selected, show a control for connecting to the Tailscale network used by its model endpoint.")
+    } else {
+        Text("Receipt input: Direct image")
+        Text("Structured output: Prompt-only JSON")
+    }
+    Text("Testing sends a connectivity prompt to this endpoint. It does not save or select the profile.")
+    editor.testStatus?.let { CopyableMessage(it) }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = viewModel::testProfile, enabled = locallyValid && !busy) { Text("Test provider") }
         Button(onClick = { viewModel.saveProfile(false) }, enabled = locallyValid && !busy) { Text("Save") }
-        Button(onClick = { viewModel.saveProfile(true) }, enabled = locallyValid && !busy) { Text("Save and select") }
     }
     TextButton(
         onClick = { if (editor.hasUnsavedChanges) confirmDiscard = true else viewModel.cancelEdit() },
@@ -309,7 +332,7 @@ private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: 
         label = { Text(label) },
         isError = error != null,
         enabled = enabled,
-        supportingText = error?.let { { Text(it) } },
+        supportingText = error?.let { { CopyableMessage(it) } },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -317,8 +340,8 @@ private fun ProfileField(value: String, onValueChange: (String) -> Unit, label: 
 
 @Composable
 private fun EnumChoice(selected: Boolean, label: String, onClick: () -> Unit, enabled: Boolean = true) {
-    Row {
-        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(label, Modifier.padding(top = 12.dp))
     }
 }

@@ -178,5 +178,6 @@ private fun providerConfigFileName(): String =
 
 private fun com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesUiState.effectiveRemoteProfile(): ModelProfile? =
     profiles.firstOrNull {
-        selectorState.remoteProvidersEnabled && it.id == selectorState.selectedRemoteProfileId
+        it.id == selectorState.selectedRemoteProfileId &&
+            (it.category == com.hugo.smartexpense.extraction.ApiProfileCategory.SAME_PHONE_SERVER || selectorState.remoteProvidersEnabled)
     }

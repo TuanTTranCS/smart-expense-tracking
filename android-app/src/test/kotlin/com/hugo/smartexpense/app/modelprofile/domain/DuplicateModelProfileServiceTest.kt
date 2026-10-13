@@ -174,6 +174,8 @@ class DuplicateModelProfileServiceTest {
         var onInsert: (suspend (ModelProfile, ModelProfile) -> Unit)? = null
         override fun observeProfiles() = MutableStateFlow(rows.values.toList())
         override fun observeSelectorState() = selector
+        override suspend fun recordJournal(entry: com.hugo.smartexpense.extraction.CredentialMutationJournal) {}
+        override suspend fun removeJournal(id: String) {}
         override suspend fun getProfile(id: String): ModelProfile? {
             if (failLookup) error("secret lookup error")
             return rows[id]

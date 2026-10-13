@@ -10,6 +10,20 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 abstract class ModelProfileDao {
+    @Query("SELECT * FROM credential_mutation_journal")
+    abstract suspend fun journalEntries(): List<CredentialMutationJournalEntity>
+    @Upsert abstract suspend fun recordJournal(entry: CredentialMutationJournalEntity)
+    @Query("DELETE FROM credential_mutation_journal WHERE id = :id")
+    abstract suspend fun removeJournal(id: String)
+    @Transaction open suspend fun publishProfile(profile: ModelProfileEntity, cleanup: CredentialMutationJournalEntity?) {
+        upsertProfile(profile)
+        cleanup?.let { recordJournal(it) }
+    }
+    @Transaction open suspend fun deleteProfileWithCleanup(id: String, cleanup: CredentialMutationJournalEntity) {
+        recordJournal(cleanup)
+        deleteProfileAndClearSelection(id)
+    }
+
     @Query("SELECT * FROM model_profiles ORDER BY display_name COLLATE NOCASE ASC, id ASC")
     abstract fun observeProfiles(): Flow<List<ModelProfileEntity>>
 
@@ -24,6 +38,11 @@ abstract class ModelProfileDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     protected abstract suspend fun insertProfile(profile: ModelProfileEntity)
+
+    @Transaction open suspend fun publishDuplicate(source: ModelProfileEntity, copy: ModelProfileEntity, stagingId: String) {
+        insertDuplicate(source, copy)
+        removeJournal(stagingId)
+    }
 
     @Transaction
     open suspend fun insertDuplicate(sourceSnapshot: ModelProfileEntity, copy: ModelProfileEntity) {
@@ -71,6 +90,9 @@ abstract class ModelProfileDao {
     @Transaction
     open suspend fun setRemoteProvidersEnabled(enabled: Boolean) {
         val selector = getSelectorState() ?: ModelSelectorStateEntity()
-        upsertSelectorState(selector.copy(remoteProvidersEnabled = enabled))
+        val selected = selector.selectedRemoteProfileId?.let { getProfile(it) }
+        val clearRemote = !enabled && selected?.category == com.hugo.smartexpense.extraction.ApiProfileCategory.REMOTE_API.name
+        upsertSelectorState(selector.copy(remoteProvidersEnabled = enabled,
+            selectedRemoteProfileId = if (clearRemote) null else selector.selectedRemoteProfileId))
     }
 }

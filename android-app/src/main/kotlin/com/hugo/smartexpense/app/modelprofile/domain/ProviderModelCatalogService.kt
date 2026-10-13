@@ -6,6 +6,7 @@ import com.hugo.smartexpense.app.connectivity.ModelsEndpointFailure
 import com.hugo.smartexpense.app.connectivity.ModelsEndpointInput
 import com.hugo.smartexpense.app.connectivity.ModelsEndpointResult
 import com.hugo.smartexpense.app.connectivity.modelsEndpointUrl
+import com.hugo.smartexpense.extraction.ApiProfileCategory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -20,6 +21,7 @@ sealed interface ProviderModelCatalogResult {
 
 fun interface ProviderModelCatalogService {
     suspend fun load(baseUrl: String, apiKey: String?): ProviderModelCatalogResult
+    suspend fun load(baseUrl: String, apiKey: String?, category: ApiProfileCategory): ProviderModelCatalogResult = load(baseUrl, apiKey)
 }
 
 /** No profile validation, persistence, inference, or receipt input belongs in discovery. */
@@ -27,7 +29,11 @@ class CompatibleProviderModelCatalogService(
     private val checker: ModelsEndpointChecker = HttpModelsEndpointChecker(),
 ) : ProviderModelCatalogService {
     override suspend fun load(baseUrl: String, apiKey: String?): ProviderModelCatalogResult {
-        val input = ModelsEndpointInput(baseUrl, apiKey)
+        return load(baseUrl, apiKey, ApiProfileCategory.REMOTE_API)
+    }
+
+    override suspend fun load(baseUrl: String, apiKey: String?, category: ApiProfileCategory): ProviderModelCatalogResult {
+        val input = ModelsEndpointInput(baseUrl, apiKey, category = category)
         if (modelsEndpointUrl(input) == null) return failure(CatalogFailure.INVALID_INPUT)
         val result = try {
             withTimeoutOrNull(10_000) { checker.check(input) } ?: return failure(CatalogFailure.TIMEOUT)

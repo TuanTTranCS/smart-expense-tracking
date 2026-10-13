@@ -1,5 +1,7 @@
 package com.hugo.smartexpense.app.tailscale
 
+import com.hugo.smartexpense.app.ui.CopyableMessage
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,7 +43,7 @@ fun TailscaleControl(state: ModelProfilesUiState, onRequest: (Boolean) -> Unit) 
             Text(status.message, Modifier.semantics { contentDescription = "Tailscale request and endpoint status" })
             Text(status.vpnStatus.label, Modifier.semantics { contentDescription = "VPN detection status" })
             Text(status.endpointStatus.label, Modifier.semantics { contentDescription = "Models endpoint status" })
-            status.endpointDetail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            status.endpointDetail?.let { CopyableMessage(it, style = MaterialTheme.typography.bodySmall) }
             Text("VPN detection cannot identify Tailscale. Endpoint reachability does not verify inference.",
                 style = MaterialTheme.typography.bodySmall)
             if (!status.connectRequested) {

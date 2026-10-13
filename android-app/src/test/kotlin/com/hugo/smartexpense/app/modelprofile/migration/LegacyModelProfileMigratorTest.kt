@@ -170,6 +170,9 @@ internal class FakeRepository : ModelProfileRepository {
     val selector = MutableStateFlow(ModelProfileSelectorState())
     override fun observeProfiles() = profiles
     override fun observeSelectorState() = selector
+    override suspend fun recordJournal(entry: com.hugo.smartexpense.extraction.CredentialMutationJournal) {}
+    override suspend fun removeJournal(id: String) {}
+    override suspend fun credentialAliasInUse(alias: String) = profiles.value.any { it.credentialAlias == alias }
     override suspend fun getProfile(id: String) = profiles.value.firstOrNull { it.id == id }
     override suspend fun saveProfile(profile: ModelProfile) {
         profiles.value = profiles.value.filterNot { it.id == profile.id } + profile

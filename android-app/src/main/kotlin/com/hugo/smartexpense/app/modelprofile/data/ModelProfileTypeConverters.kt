@@ -1,10 +1,14 @@
 package com.hugo.smartexpense.app.modelprofile.data
 
 import androidx.room.TypeConverter
+import com.hugo.smartexpense.extraction.ApiProfileCategory
 import com.hugo.smartexpense.extraction.RemoteInputMode
 import com.hugo.smartexpense.extraction.RemoteStructuredOutputFormat
 
 class ModelProfileTypeConverters {
+    @TypeConverter fun categoryToString(value: ApiProfileCategory): String = value.name
+    @TypeConverter fun stringToCategory(value: String): ApiProfileCategory =
+        enumValues<ApiProfileCategory>().firstOrNull { it.name == value } ?: error("Repair the saved profile: unknown API category.")
     @TypeConverter fun inputModeToString(value: RemoteInputMode): String = value.name
     @TypeConverter fun stringToInputMode(value: String): RemoteInputMode = RemoteInputMode.valueOf(value)
     @TypeConverter fun outputFormatToString(value: RemoteStructuredOutputFormat): String = value.name

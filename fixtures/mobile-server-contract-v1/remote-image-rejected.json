@@ -1,0 +1,1 @@
+{"model":"gemma-4-E2B-it-gpu","messages":[{"role":"user","content":[{"type":"text","text":"Extract this receipt."},{"type":"image_url","image_url":{"url":"https://example.invalid/receipt.png"}}]}]}

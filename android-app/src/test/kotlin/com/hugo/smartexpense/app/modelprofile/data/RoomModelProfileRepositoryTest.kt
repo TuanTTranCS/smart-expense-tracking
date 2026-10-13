@@ -21,6 +21,27 @@ import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 class RoomModelProfileRepositoryTest {
+    @Test fun corruptCategoryRemainsObservableAndBlocksAdmissionUntilExplicitRepair() = runTest {
+        val original = profile("corrupt", "Repair me")
+        repository.saveProfile(original)
+        repository.selectProfile(original.id)
+        repository.setRemoteProvidersEnabled(true)
+        database.openHelper.writableDatabase.execSQL("UPDATE model_profiles SET category = 'UNKNOWN' WHERE id = 'corrupt'")
+        val observed = repository.observeProfiles().first().single()
+        assertEquals("corrupt", observed.id)
+        assertTrue(observed.configurationError!!.contains("Repair"))
+        val store = object : com.hugo.smartexpense.extraction.WritableApiKeyStore {
+            override fun get(alias: String): String? = null
+            override fun put(alias: String, value: String) {}
+            override fun remove(alias: String) {}
+        }
+        val coordinator = com.hugo.smartexpense.app.modelprofile.domain.ProfileConfigurationCoordinator(repository, store)
+        assertFailsWith<IllegalArgumentException> { coordinator.selectedSnapshot() }
+        repository.saveProfile(original) // explicit valid category repair
+        assertNull(repository.getProfile(original.id)!!.configurationError)
+        assertEquals(original, coordinator.selectedSnapshot().configuration!!.profile)
+    }
+
     private lateinit var database: ModelProfileDatabase
     private lateinit var repository: RoomModelProfileRepository
 

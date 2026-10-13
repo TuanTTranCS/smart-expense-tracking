@@ -1,5 +1,7 @@
 package com.hugo.smartexpense.app.modelprofile.data
 
+import com.hugo.smartexpense.extraction.ApiProfileCategory
+import com.hugo.smartexpense.extraction.CredentialMutationJournal
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -20,18 +22,21 @@ data class ModelProfileEntity(
     @ColumnInfo(name = "created_at_epoch_millis") val createdAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at_epoch_millis") val updatedAtEpochMillis: Long,
     @ColumnInfo(name = "show_tailscale_toggle", defaultValue = "0") val showTailscaleToggle: Boolean = false,
+    @ColumnInfo(defaultValue = "'REMOTE_API'") val category: String = ApiProfileCategory.REMOTE_API.name,
 ) {
     fun toDomain(): ModelProfile = ModelProfile(
         id, displayName, baseUrl, modelId, inputMode,
         structuredOutputFormat, credentialAlias,
         createdAtEpochMillis, updatedAtEpochMillis, showTailscaleToggle,
+        enumValues<ApiProfileCategory>().firstOrNull { it.name == category } ?: ApiProfileCategory.REMOTE_API,
+        if (enumValues<ApiProfileCategory>().none { it.name == category }) "Repair the saved profile: unknown API category." else null,
     )
 
     companion object {
         fun fromDomain(value: ModelProfile) = ModelProfileEntity(
             value.id, value.displayName, value.baseUrl, value.modelId, value.inputMode,
             value.structuredOutputFormat, value.credentialAlias,
-            value.createdAtEpochMillis, value.updatedAtEpochMillis, value.showTailscaleToggle,
+            value.createdAtEpochMillis, value.updatedAtEpochMillis, value.showTailscaleToggle, value.category.name,
         )
     }
 }
@@ -45,4 +50,17 @@ data class ModelSelectorStateEntity(
     fun toDomain() = ModelProfileSelectorState(selectedRemoteProfileId, remoteProvidersEnabled)
 
     companion object { const val SINGLETON_ID = 1 }
+}
+
+@Entity(tableName = "credential_mutation_journal")
+data class CredentialMutationJournalEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "profile_id") val profileId: String,
+    val alias: String,
+    val phase: String,
+) {
+    fun toDomain() = CredentialMutationJournal(id, profileId, alias, phase)
+    companion object {
+        fun fromDomain(value: CredentialMutationJournal) = CredentialMutationJournalEntity(value.id, value.profileId, value.alias, value.phase)
+    }
 }

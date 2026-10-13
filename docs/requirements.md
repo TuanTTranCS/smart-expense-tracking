@@ -1,6 +1,14 @@
 # Smart Expense Tracking Requirements
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
+
+✅ Done (2026-10-12): Recorded Hugo's confirmation that **Verify, receipt-photo extraction and typed-expense extraction worked on Pixel 7** for plans 10a/10b; see [companion confirmation](10a.mobile-server-companion-verification.md#phone-verification-confirmation) and [expense-app confirmation](10b.mobile-server-expense-app-verification.md#phone-verification-confirmation). This supersedes earlier blanket phone-verification/paired-photo Pending statements. Offline use, cancellation/retry/native drain, accuracy/latency/memory and background acceptance under `REQ-M-007/035`, `AC-057..060` remain unconfirmed. Requirements and existing automated evidence are unchanged.
+
+✅ Done (2026-10-12): Checked provider verification and readable UI corrections against `REQ-M-011..014`, `REQ-UI-002/006`. **87 shared/252 Android unit tests**, debug assembly and Android-test compilation pass. Prompt-only connectivity checks accept one complete JSON code block while retaining exact object validation and secret-safe errors; receipt/export validation is unchanged. See [evidence and phone-retest limits](10b.mobile-server-expense-app-verification.md#provider-output-and-ui-text-follow-up).
+
+Three-category provider requirements alignment: ✅ Done on 2026-10-10. Built-in on-device, Same-phone server, and Remote API are defined below in accordance with [the mobile-server integration goal](10.mobile-server-integration-goal.md). Companion and expense-app software/client automated verification are complete; native-drain/paired loaded-model/physical acceptance remains pending. See the 2026-10-11 verification record below.
+
+✅ Done (2026-10-11): [10b expense-app software verification](10b.mobile-server-expense-app-verification.md): **79 shared tests**, **244 Android unit tests**, debug assembly/Android-test compilation and **40 full Pixel 8a emulator tests** pass with zero failures/errors/skips. GPT 6 Astra review/re-review completed; primary agent independently checked and fixed valid findings. Client coverage addresses `REQ-M-001..005/008..034`, `REQ-A-019/023..029`, `REQ-H-008..009`, `REQ-UI-001..006/009..013`, `AC-052..056` and client portions of `AC-057..059`: category/consent/Tailscale, Room/transfer compatibility, optional-key secure journal/recovery/snapshots, strict bounded Prompt-only loopback HTTP, deadline/confirmed control/quarantine and unchanged review/export. Existing regressions establish preserved contracts, not native model quality. `REQ-M-006..007/035`, full cross-app `AC-057..059` and physical/offline `AC-060` remain open for the supported companion/native/physical evidence specified in E5/E8 and 10a.
 
 Dedicated narrative prompt and Export All revision: implementation and automated verification ✅ Done on 2026-10-07 for `REQ-A-027..029`, `REQ-H-009`, `REQ-W-014`, and `AC-048..050`. All 60 shared tests, 210 Android unit tests, 28 emulator UI tests, debug assembly, 51 Windows batch assertions, 22 typed assertions, existing fixtures, and 117 copied-workbook assertions pass. Live provider interpretation, physical-device validation and production rollout remain pending.
 
@@ -24,7 +32,7 @@ High-confidence parts:
 
 Main risks:
 - Google AI Edge APIs and LiteRT-LM provide an Android integration path, but the exact receipt-image extraction approach still needs a spike because LiteRT-LM model capability, image input support, prompt format, and device performance must be verified.
-- OpenAI-compatible APIs are feasible as a user-enabled extraction provider, but they add network dependency, API key handling, cost/rate-limit behavior, and privacy disclosure requirements.
+- Remote API profiles are feasible as user-enabled extraction providers, but add network dependency, API key handling, cost/rate-limit behavior, and privacy disclosure requirements. Same-phone server uses the compatible protocol without external inference transmission, but adds companion/model lifecycle and device-memory dependencies.
 - Uploading a receipt image and its JSON as one recoverable export requires deterministic naming, idempotent retries, and image-first publication so Hermes never processes a JSON whose image is missing.
 
 ## System Context
@@ -33,7 +41,7 @@ The system has three main components:
 
 1. Android app
    - Captures or imports receipt images.
-   - Runs extraction through the selected model provider.
+   - Runs extraction through the selected Built-in on-device, Same-phone server, or Remote API provider. The optional same-phone companion is a separate runtime on the Android phone under REQ-M-006/031..035.
    - Provides Settings for choosing the extraction provider and model.
    - Lets the user review/edit extracted fields.
    - Uploads a normalized receipt JPEG and its handoff file into OneDrive using Microsoft Graph.
@@ -102,9 +110,9 @@ REQ-A-021: Main shall accept a mixed batch of up to 20 ordered, independently id
 
 REQ-A-022: Each item shall default to image input with an unchecked No receipt image checkbox. All no-image source fields (merchant, amount, currency default CAD, date, and notes) shall be optional free-text hints for LLM extraction, with no input data-type, format, or per-field presence requirements. Labels shall suggest what to enter without restricting the information accepted. A user may enter the full expense in any single field, including Merchant or Notes, and leave every other field blank. Only an empty/whitespace-only combined draft, including the untouched CAD default alone, shall block submission. Numeric-only keyboards, amount/currency format checks, and fixed date patterns shall not prevent entering or submitting text. An optional date picker shall not restrict typed dates. Switching modes shall preserve the original draft strings and detach inactive image evidence; source changes shall invalidate unexported results.
 
-REQ-A-023: Extract all shall process only eligible new/changed inputs in a single asynchronous run, snapshotting provider/policy/input revisions. Enforce at most three item requests, on-device concurrency one, and configurable initial remote start spacing 3.5 seconds across inference/recovery/retries. Failed items require explicit retry; no automatic export follows extraction.
+REQ-A-023: Extract all shall process only eligible new/changed inputs in a single asynchronous run, snapshotting provider/policy/input revisions. Enforce at most three item requests, Built-in on-device concurrency one, Same-phone server concurrency one, and configurable initial Remote API start spacing 3.5 seconds across inference/recovery/retries. Remote start spacing shall apply only to Remote API requests. Same-phone extraction shall use a 180-second overall deadline and a corresponding HTTP read timeout; cancellation/timeout shall abort the client request and stop companion generation as required by REQ-M-035. Failed items require explicit retry; no automatic export follows extraction.
 
-REQ-A-024: Stable item/transaction/revision identities shall isolate out-of-order completions, edits, retry, and export. Removal/Cancel remaining/backgrounding/remote consent revocation shall stop pending dispatch and cancel/drain active work without late publication. Completed results shall survive cancellation.
+REQ-A-024: Stable item/transaction/revision identities shall isolate out-of-order completions, edits, retry, and export. Removal/Cancel remaining/backgrounding shall stop pending dispatch and cancel/drain active work without late publication. Remote consent revocation shall stop pending and active Remote API work without cancelling Built-in on-device or Same-phone server work solely because consent changed. Completed results shall survive cancellation.
 
 REQ-A-025: Typed extraction shall send all original labeled field strings, including blanks, as data in a text-only LLM request on Extract all, item-level Extract, or explicit Retry extraction, with no image/OCR operations or local source-format parsing. The LLM shall extract exactly one structured expense using the combined information from every field, including Notes, regardless of labels; a blank dedicated field shall not mean the corresponding fact is absent from the draft. Evaluate explicitly supplied arithmetic (for example, `15+50` or `15+50, which is 65 in total` to numeric `totalAmount: 65`), normalize unambiguous dates (for example, `Oct 7 2026` to `receiptDate: "2026-10-07"`) and currency descriptions (for example, `Canadian dollars` to `CAD`) wherever they appear. Use CAD as a default only when no explicit currency is supplied anywhere; conflicting explicit facts shall require user resolution rather than field-label precedence. For a recognizable well-known merchant, the LLM may suggest a typo correction (for example, `Walmrat` to `Walmart`) with the original and suggestion visible for user acceptance; ambiguous or unfamiliar names shall not be replaced with a guessed brand. After extraction, the app shall deterministically validate a nonblank merchant, finite non-negative decimal amount, uppercase three-letter currency code, and real ISO date before export. Preserve source fields/notes separately, including facts extracted from Notes, show normalization/corrections for explicit confirmation, and retain drafts on failure with retry or validated structured manual fallback. Contradictory amounts, ambiguous dates/currencies, impossible dates, and missing facts shall require user resolution; never invent expense facts, add unstated tax/tip, or convert currencies. Source free-text acceptance shall not weaken result/export validation.
 
@@ -120,7 +128,15 @@ REQ-A-030: Each expanded no-image item shall show an item-level Extract action b
 
 ### Model Provider and Extraction
 
-REQ-M-001: The extraction implementation shall default to an on-device provider.
+Provider categories used throughout these requirements:
+
+- **Built-in on-device:** inference inside the expense app through Google AI Edge/LiteRT-LM; the default and deterministic fallback.
+- **Same-phone server:** a separately installed, explicitly selected supported mobile-server companion fork that performs inference on the same phone through a loopback-only OpenAI-compatible HTTP endpoint.
+- **Remote API:** a saved OpenAI-compatible profile whose inference service is outside the phone, including LAN, Tailscale, and cloud services; receipt transmission requires remote opt-in.
+
+OpenAI-compatible describes the API protocol, not whether inference is remote. Saved API profiles comprise Same-phone server and Remote API profiles; the Built-in on-device provider does not require an API profile. A legacy profile remains Remote API on migration/import regardless of its URL; it shall not acquire same-phone eligibility through URL inference. Same-phone classification is valid only under REQ-M-031.
+
+REQ-M-001: The extraction implementation shall default to the Built-in on-device provider. Creating, saving, importing, duplicating, or configuring an API profile shall not automatically select it.
 
 REQ-M-002: The extraction prompt/output contract shall require structured data, not free-form prose.
 
@@ -130,40 +146,41 @@ REQ-M-003A: The extraction response shall represent distinct transactions as ele
 
 REQ-M-004: If model extraction fails or confidence is low, the app shall allow manual entry.
 
-REQ-M-005: The preferred local model integration shall use Google AI Edge APIs or Google AI Edge LiteRT-LM directly in the Android app.
+REQ-M-005: The Built-in on-device provider shall use Google AI Edge APIs or Google AI Edge LiteRT-LM directly in the Android expense app and remain the default. The optional Same-phone server provider shall use the separately installed supported companion fork defined by REQ-M-006 and REQ-M-031..035.
 
-REQ-M-006: The implementation shall use AI Edge Gallery only as a sample/reference app unless a stable documented app-to-app integration is confirmed.
+REQ-M-006: AI Edge Gallery shall remain a sample/reference implementation for the Built-in on-device provider. As an explicit companion-runtime exception, the project shall support a separately maintained mobile-server fork based on revision `a0ca94a9f79f1e5dbea0cb315f565f5512cae6b7`, preserving its license and attribution and documenting the supported HTTP contract. Unmodified Gallery/mobile-server compatibility shall not be assumed. Companion startup shall remain user-controlled; the expense app shall not embed or automatically start the server, download models automatically, or enable tunnels.
 
-REQ-M-007: The implementation spike shall verify whether the selected local model path supports the receipt-image input workflow directly, or whether OCR/preprocessing is required before LLM extraction.
+REQ-M-007: The Built-in on-device spike shall verify direct receipt-image support or the need for OCR/preprocessing. Same-phone server validation shall separately prove direct receipt-image and typed-text extraction with the selected provisioned vision model, including vision-backend initialization, offline operation, accuracy, latency, memory pressure, and companion background behavior on a physical phone. OCR is outside the same-phone integration; HTTP compatibility alone shall not establish model quality.
 
-REQ-M-008: The Android app shall support user-configured OpenAI-compatible API providers in addition to local models.
+REQ-M-008: The Android app shall support Built-in on-device, Same-phone server, and Remote API providers behind one extraction abstraction, with saved OpenAI-compatible profiles for both API categories.
 
-REQ-M-009: OpenAI-compatible API support shall be disabled by default and shall require explicit user configuration before any receipt image, OCR text, or extracted data is sent to a remote model provider.
+REQ-M-009: Remote API access shall be disabled by default and require explicit configuration and user opt-in through Settings before receipt images, OCR text, typed drafts, or extracted data are sent outside the phone for inference. A configured Same-phone server profile shall be selectable independently of remote opt-in and require explicit selection before expense extraction; configuring it shall not enable remote access or change selection.
 
 REQ-M-010: The Android app shall include a Settings section with a Model Selector that allows the user to choose:
-- provider type: local on-device or OpenAI-compatible API
+- provider category: Built-in on-device, Same-phone server, or Remote API
 - provider display name
 - base URL for OpenAI-compatible providers
 - model id/name
 - whether the selected provider accepts image input directly or requires OCR text input
+- structured-output mode: JSON Schema, JSON Object, or Prompt-only JSON for API profiles; Same-phone server shall use direct-image input for photos and string content for typed drafts, without OCR
 
-REQ-M-011: The app shall store OpenAI-compatible API credentials using Android secure credential storage, not plain preferences or logs.
+REQ-M-011: The expense app shall store any configured API-profile key using Android secure credential storage, not plain preferences or logs. Same-phone keys shall be optional as defined by REQ-M-032; existing Remote API credential requirements shall remain unchanged. Keys shall remain redacted from errors, logs, Debug output, and persisted UI state even when Debug is enabled.
 
 REQ-M-012: The app shall allow the user to test a configured OpenAI-compatible provider before selecting it for receipt extraction.
 
-REQ-M-013: The extraction pipeline shall use the same normalized structured output contract for local and OpenAI-compatible providers.
+REQ-M-013: All three provider categories and all API output modes shall use the same normalized structured output contract, parser, validation, review, and export gates. Prompt-only JSON shall not weaken structured result validation.
 
-REQ-M-014: The app shall surface remote-provider failures, rate limits, authentication failures, and network unavailability with a clear recovery path and manual-entry fallback.
+REQ-M-014: The app shall surface provider failures, rate limits, authentication failures, and network unavailability with a clear recovery path and manual-entry fallback. Same-phone failures shall distinguish stopped/unreachable servers, missing or non-vision models, busy inference, missing/mismatched keys, timeout, and invalid output. Outages shall retain the selected profile, drafts, and recoverable review state for explicit retry or manual entry; they shall not automatically dispatch to another provider.
 
 REQ-M-015: The app shall allow the user to create, view, edit, test, save, select, and delete multiple named OpenAI-compatible provider profiles.
 
-REQ-M-016: Each saved profile shall have a stable unique ID and shall persist its display name, base URL, model ID, input mode, and structured-output format across app restarts.
+REQ-M-016: Each saved API profile shall have a stable unique ID and shall persist its category, display name, base URL, model ID, input mode, and structured-output mode across app restarts. Same-phone endpoint persistence and validation shall follow REQ-M-031.
 
 REQ-M-017: The app shall persist the selected profile ID and visibly identify the provider that will be used for the next extraction.
 
-REQ-M-018: Each remote profile shall use a distinct secure credential alias; API-key values shall not be stored in the profile database, plain preferences, logs, or UI state intended for persistence.
+REQ-M-018: Each saved API profile shall use a distinct secure credential alias for any stored key, with independent replacement, explicit clearing, and deletion. An alias shall not imply that a key is configured. API-key values shall not be stored in the profile database, plain preferences, logs, Debug output, or UI state intended for persistence; immutable request snapshots shall retain only the effective credential needed for that request and shall not persist it in batch state.
 
-REQ-M-019: Deleting the selected profile, disabling remote providers, or encountering a missing selected profile shall result in a deterministic local-provider fallback without sending receipt data remotely.
+REQ-M-019: Deleting the selected API profile or encountering a missing selected profile shall select the Built-in on-device provider without dispatching expense data to another API provider. Disabling remote access shall select Built-in on-device only when a Remote API profile is selected; an existing Same-phone server or Built-in on-device selection shall remain unchanged. Fallback shall not automatically initiate extraction, and built-in model unavailability shall offer model setup/manual recovery rather than another API selection.
 
 REQ-M-020: Migrating from the single-profile settings format shall preserve a valid existing configuration and credential without creating duplicate profiles on subsequent starts.
 
@@ -171,25 +188,37 @@ REQ-M-021: The app shall display the bundled LM Studio Gemma profile alongside u
 
 REQ-M-022: When one input image or OCR text contains multiple receipt documents that clearly represent the same transaction, the extraction prompt shall produce one expense and set `totalAmount` to the finalized amount charged or payable, including tax and tip. The extraction shall not add together totals from those documents. It shall use `low_confidence` when the documents may represent different transactions or the finalized amount cannot be identified reliably.
 
-REQ-M-023: The app shall export all saved remote-provider profiles and the current selector snapshot to a versioned JSON file chosen through Android's system document picker. The export shall contain provider metadata only and shall never contain API keys, credential aliases, or database timestamps.
+REQ-M-023: The app shall export all saved Same-phone server and Remote API profiles and the current selector snapshot to a versioned JSON file chosen through Android's system document picker. Export shall include category, endpoint, model, input mode, output mode, and applicable profile capabilities as metadata only and shall never contain either app's API keys, credential aliases, or database timestamps.
 
-REQ-M-024: The app shall validate and preview a provider-configuration JSON file before importing it. Import shall be atomic, preserve non-conflicting profile IDs, save conflicting IDs as new copies, generate local credential aliases, import no credentials, and leave the device's current provider selection and remote-provider opt-in unchanged.
+REQ-M-024: The app shall validate and preview a provider-configuration JSON file before importing it, including category-specific endpoint and capability validation. Import shall be atomic, preserve non-conflicting profile IDs, save conflicting IDs as new copies, generate local credential aliases, import no credentials, and leave the device's current provider selection and remote-provider opt-in unchanged. A credential-free Same-phone server profile shall be valid for import; if the companion requires a key, subsequent verification/extraction shall request authentication recovery rather than reject the metadata import.
 
 REQ-M-025: Provider-configuration export and import shall use Android's Storage Access Framework without broad storage permissions, allowing the user to choose Downloads or another document-provider location. Cancellation, invalid files, and document read/write failures shall not change saved provider profiles and shall provide a clear recovery message where applicable.
 
 REQ-M-026: Remote profiles shall persist an independently editable, default-false `showTailscaleToggle` capability. Room v1-to-v2 migration shall preserve profile metadata, credentials, selection and remote opt-in while defaulting the flag to false. Provider-configuration v2 shall round-trip the flag without credentials, retain validated/previewed atomic imports and conflict copying, and accept v1 imports with the flag defaulting to false.
 
+The v1/v2 rules above are retained compatibility requirements; current category/output-mode migration shall follow REQ-M-034. Same-phone server profiles shall have no enabled Tailscale capability, and saves/imports with that category and `showTailscaleToggle: true` shall be rejected.
+
 REQ-M-027: Tailscale commands shall require the current effective selected remote profile to exist and explicitly permit control. Connect/disconnect shall dispatch only the supported package-targeted broadcasts to `com.tailscale.ipn`; no profile change, extraction, or capability edit shall dispatch either command automatically. Endpoint reachability shall use the reusable models endpoint check with the immutable saved-profile URL and saved credentials, without receipt images, receipt text or inference, with 10-second attempts, 2-second retries and a 30-second overall connect deadline. Changing the effective profile shall cancel stale operations. Missing/unsupported installations, dispatch failures and timeouts shall provide recovery guidance.
 
 REQ-M-028: A reusable models endpoint checker shall accept caller-provided base URL, optional API key, relative models path (default `models`), and positive connect/read timeouts. It shall send only GET, return model IDs for a successful valid `data` array (including an empty array), and report invalid inputs, invalid responses, HTTP errors and network failures without exposing credentials or response bodies. Redirects shall not forward credentials. Response size shall be bounded to 1 MiB, and coroutine cancellation shall abort the underlying connection. This check shall be independent of Tailscale and profile persistence; the existing inference-based provider verification shall remain separate.
 
-REQ-M-029: Duplicating a saved remote profile shall copy every provider setting and any stored credential under a new independent ID/credential alias, append exactly ` (copy)` to the name, assign fresh timestamps, and preserve the source, selection, and opt-in. A failed copy shall not overwrite an existing profile or expose a key.
+REQ-M-029: Duplicating a saved API profile in either category shall copy every provider setting, including category, endpoint and output mode, and any stored credential under a new independent ID/credential alias, append exactly ` (copy)` to the name, assign fresh timestamps, and preserve the source, selection, and opt-in. A credential-free profile shall remain credential-free. A failed copy shall not overwrite an existing profile or expose a key.
 
 REQ-M-030: Explicit model discovery shall use the editor's endpoint/effective credential snapshot, normalize supported OpenAI-compatible model lists, send only discovery requests, cancel stale work, and retain manual model entry on failure or empty lists.
 
+REQ-M-031: Same-phone profiles shall default to `http://127.0.0.1:8080/v1` and persist an editable listening port and API base path through their saved endpoint. The expense app shall require HTTP with the literal host `127.0.0.1`, a valid port and API path, and no user-info, query or fragment; DNS names, alternate loopback spellings, LAN and remote hosts shall be rejected for this category before saving/importing or requesting. The supported companion shall bind only `127.0.0.1`, keep tunnels disabled, persist configurable port/path with defaults `8080` and `/v1`, and display the active endpoint. The expense app shall narrowly permit cleartext for that literal host and reject same-phone redirects for discovery, verification and extraction. All requests shall use the saved or explicit editor snapshot's base URL. Endpoint/credential/category/model/output-mode edits shall cancel stale discovery/verification; saved changes shall affect subsequent extraction snapshots without mutating active extraction snapshots.
+
+REQ-M-032: Both apps shall support an optional, independently configured same-phone API key. With no client key, the expense app shall omit Authorization entirely; with a key, it shall send `Authorization: Bearer <key>` for discovery, verification and extraction. With no server key, the companion shall allow unauthenticated requests; with a key, it shall require a matching Bearer key for discovery and inference and return HTTP 401 for absent/incorrect keys before inference. The companion shall store its key securely, support explicit clearing, and never expose it in logs/errors. The expense app shall apply REQ-M-011/018 and provide actionable missing/mismatched-key recovery. No placeholder credential shall be sent and neither app's key shall enter configuration transfer.
+
+REQ-M-033: Saved API profiles shall support Prompt-only JSON, which omits `response_format` while retaining the existing extraction/verification JSON prompts and strict output validation. Verification shall parse and semantically validate the expected JSON object rather than require identical serialized whitespace/key ordering. JSON Schema and JSON Object modes shall retain their existing request contracts; companion profiles shall use Prompt-only JSON for the supported server contract.
+
+REQ-M-034: The dedicated model-profile Room database shall migrate v2 to v3 and provider-configuration transfer shall advance v2 to v3 for category and output mode. Existing profiles and v1/v2 imports shall remain Remote API, preserve existing output modes and Tailscale settings (v1 flag defaults false), and never infer same-phone classification from an endpoint. Database migration shall preserve IDs, credentials, selection and opt-in without duplicate profiles; v3 transfer shall retain preview/atomic import/conflict-copy rules and credential exclusion, validate category/output mode, and never auto-select imported profiles. These versions are independent of the batch/export database and expense handoff versions, which shall not change for this integration.
+
+REQ-M-035: The companion shall retain model discovery and non-streaming chat/completions under its configured API base path. It shall accept string messages for typed expenses and OpenAI-style text/image_url parts with inline base64 images for photos, without downloading remote image URLs. Decoded images and prompt text shall enter a vision-initialized inference engine; a non-vision model shall reject image requests clearly. Each expense extraction shall start independent conversation state. Inference shall be serialized across requests, unloading shall coordinate with active inference, and cancellation/client disconnect/timeout shall stop generation and release resources. Running state shall appear only after successful server startup, with model readiness shown separately.
+
 REQ-UI-001: The Android app shall use separate Main and Settings destinations. Main shall contain only receipt-workflow controls plus Settings navigation chrome; Settings shall contain remote-provider opt-in, full profile management and transfer, and receipt-image preprocessing preferences, and shall not contain receipt import, review, or export controls.
 
-REQ-UI-002: Main shall provide compact selection of the local provider or an eligible saved remote profile, show the effective provider for the next extraction, and verify the selected provider without opening its editor. Local verification shall check the installed model file; remote verification shall use only saved metadata and its secure credential alias.
+REQ-UI-002: Main shall provide compact selection of Built-in on-device or an eligible saved Same-phone server/Remote API profile, show the effective category/provider for the next extraction, and verify the selected provider without opening its editor. Built-in verification shall check the installed model file. API verification shall use only saved metadata and the effective secure credential, including no key for credential-free same-phone profiles, and validate an inference response under the saved output mode. Models discovery/reachability shall remain separate and shall not imply inference readiness.
 
 REQ-UI-003: Main shall show OneDrive readiness with only the contextual connect, reconnect, or verify action needed for export. Routine disconnect shall not appear in the receipt workflow, and export eligibility shall derive from the same readiness rule as the displayed status.
 
@@ -203,15 +232,17 @@ REQ-UI-007: Each prepared image input shall expose a thumbnail opening the compl
 
 REQ-UI-008: The full-screen selected-receipt image viewer shall support pinch-to-zoom and visible, accessible Zoom in and Zoom out controls. It shall open with the complete image fitted in view, allow panning while zoomed, keep zoom and pan within bounded limits, and reset the view when closed, reopened, or shown for a different image. Zooming shall affect display only; it shall not change the processed image supplied to extraction, review fields, or export data.
 
-REQ-UI-009: Settings shall expose the per-profile Tailscale checkbox only in the remote-profile editor. Main shall show an accessible control only for an eligible effective remote profile, identify its name and saved endpoint, and display command requests, VPN detection and models endpoint reachability separately. The switch shall represent the last requested command. VPN detection shall report only VPN networks visible to this app, and shall not identify their owner or assert Tailscale connection; endpoint reachability shall not assert successful inference. Restart/resume shall refresh observations without issuing commands; extraction shall remain available. Local, disabled, missing and disallowed profiles shall hide the control and reject callbacks.
+REQ-UI-009: Settings shall expose the per-profile Tailscale checkbox only in the Remote API profile editor. Main shall show an accessible control only for an eligible effective Remote API profile, identify its name and saved endpoint, and display command requests, VPN detection and models endpoint reachability separately. The switch shall represent the last requested command. VPN detection shall report only VPN networks visible to this app, and shall not identify their owner or assert Tailscale connection; endpoint reachability shall not assert successful inference. Restart/resume shall refresh observations without issuing commands; extraction shall remain available. Built-in on-device, Same-phone server, disabled, missing and disallowed profiles shall hide the control and reject callbacks.
 
-REQ-UI-010: While the app is resumed and an eligible profile is selected, it shall observe VPN changes and check the models endpoint automatically at entry, after VPN detection changes, and again 15 seconds after each completed check. Each passive check shall have a 10-second deadline; connect readiness shall retain its bounded retries. Pausing the app, changing/editing/removing the profile, or revoking permission shall cancel stale checks; pausing shall also unregister network callbacks. Resume shall reset old request/observation state and recheck the current profile. Detection failures shall show unavailable/unknown rather than a false confirmed state. No observation shall automatically connect or disconnect Tailscale.
+REQ-UI-010: While the app is resumed and an eligible Remote API profile permitting Tailscale control is selected, it shall observe VPN changes and check the models endpoint automatically at entry, after VPN detection changes, and again 15 seconds after each completed check. Each passive check shall have a 10-second deadline; connect readiness shall retain its bounded retries. Pausing the app, changing/editing/removing the profile, or revoking permission shall cancel stale checks; pausing shall also unregister network callbacks. Resume shall reset old request/observation state and recheck the current profile. Detection failures shall show unavailable/unknown rather than a false confirmed state. No observation shall automatically connect or disconnect Tailscale. Same-phone profiles shall not participate in this VPN observation/control workflow.
 
 REQ-UI-011: Each prepared input shall expose explicit Retry extraction using its retained image bytes or typed draft and a newly resolved permitted provider snapshot. Retry shall replace only that item's unexported results after success, protect edited reviews with confirmation, and retain old results after failure while preventing stale export. Retry shall be disabled during batch extraction/export or provider configuration. Image-load failure requires reselection; retry shall not upload or alter persisted exports.
 
 REQ-UI-012: Main and Settings shall reserve Android's safe drawing insets outside their scrollable viewports so controls remain fully visible and tappable above gesture and three-button navigation bars. Layout shall respond to status bars, display cutouts, side navigation bars and keyboard inset changes, consuming shared insets once while preserving existing content margins.
 
 REQ-UI-013: Settings shall expose accessible Duplicate profile and Load models actions, a searchable model picker, and separate loading/empty/error/cancelled states. Selecting a catalog item shall edit only the draft until explicitly saved.
+
+REQ-UI-014: Expense-app diagnostics, including provider verification, profile testing/discovery, extraction and review errors, shall support text selection and an accessible Copy message action that copies the complete displayed message on demand. The companion shall expose selectable saved and active endpoint URLs with separate Copy actions that copy only the exact endpoint snapshot. Stopped/unavailable endpoints shall have no Copy action; copying shall not include credentials or change settings, selection, service state or inference.
 
 ### Handoff File
 
@@ -340,13 +371,13 @@ REQ-O-004: Amazon Photos may remain the full-resolution backup source, while the
 
 ## Non-Functional Requirements
 
-NFR-001: The default workflow shall avoid sending receipt images or extracted data to third-party cloud AI services. Remote AI providers may be used only after explicit user opt-in through Settings.
+NFR-001: The default Built-in on-device workflow shall avoid sending expense data to third-party AI services. Remote API providers, including LAN/Tailscale services, may receive expense data only after explicit user opt-in through Settings. Explicitly selected Same-phone server inference shall remain on the phone under the loopback-only restrictions of REQ-M-031 and shall not require remote opt-in.
 
-NFR-002: Sensitive data shall not be logged in full unless debug logging is explicitly enabled.
+NFR-002: Sensitive expense data shall not be logged in full unless debug logging is explicitly enabled. API keys and authentication secrets shall always remain redacted, including when Debug is enabled, in both apps.
 
-NFR-003: The Android app shall work offline for capture, extraction, review, and local queueing.
+NFR-003: The Android app shall work offline for capture, review, correction, manual entry, and local export queueing. Built-in extraction shall work offline after its model is provisioned. Same-phone extraction shall work offline after companion/model provisioning while the companion is running with the required model ready; companion outages shall preserve drafts and offer explicit retry/manual entry. Offline export queueing shall not imply OneDrive upload without network access.
 
-NFR-003A: If a remote OpenAI-compatible provider is selected, capture, review, correction, export queueing, and manual entry shall still work offline; only remote extraction may require network access.
+NFR-003A: If a Remote API provider is selected, capture, review, correction, export queueing, and manual entry shall still work offline; Remote API extraction may require network access. A local HTTP connection to Same-phone server shall not imply an external-network dependency.
 
 NFR-004: OneDrive sync delay shall be tolerated; a 5-minute polling interval is acceptable for the MVP.
 
@@ -387,19 +418,19 @@ NFR-008: Paired receipt-image and JSON export shall be restart-safe and idempote
 
 ## Key Design Decisions
 
-DEC-001: Confirm the exact Android local extraction path.
+DEC-001: Define the Android inference paths that remain on the phone.
 
-Current direction: use Google AI Edge APIs or LiteRT-LM directly in the app. AI Edge Gallery is a reference implementation, not a required runtime dependency.
+Decision: Built-in on-device uses Google AI Edge APIs or LiteRT-LM directly in the expense app and remains the default. AI Edge Gallery remains a reference for that provider. Same-phone server is an explicitly selected optional runtime through a separately supported mobile-server companion fork under REQ-M-006/031..035. Direct-image vision quality and physical-phone lifecycle/performance remain implementation acceptance work; see [the integration goal](10.mobile-server-integration-goal.md).
 
 DEC-001A: Confirm the Android model-provider strategy.
 
-Current direction: support both local on-device models and OpenAI-compatible API providers behind one extraction interface. Local on-device extraction remains the default privacy-preserving path. OpenAI-compatible API providers are user-configured optional providers selected from Settings.
+Decision: support Built-in on-device, Same-phone server, and Remote API behind one extraction interface and normalized output contract. API protocol and inference location are separate concerns. Both API categories use explicitly selected saved profiles; only Remote API requires remote opt-in. The built-in provider is the default and deterministic fallback; same-phone outages offer retry/manual entry without automatically selecting another provider.
 
 Evaluation:
 - Benefits: faster MVP path if local multimodal performance is weak, broader model choice, easier model upgrades, and a useful fallback for devices that cannot run the selected local model reliably.
-- Tradeoffs: receipt data may leave the device, extraction can fail without network access, users may incur API costs, API keys must be protected, and provider compatibility must be tested because "OpenAI-compatible" APIs can differ in vision, JSON output, authentication, and error behavior.
-- Recommendation: proceed with OpenAI-compatible API support as an optional provider, not as the default. Build a provider abstraction and Model Selector early so local and remote providers share the same prompt, parser, validation, review, and handoff contracts.
-- Implementation sequencing: test the OpenAI-compatible API option first, then validate the local LiteRT-LM model path later against the same extraction contract.
+- Tradeoffs: Remote API may send data outside the phone, require network access and incur costs. Same-phone server adds a companion runtime, model readiness and lifecycle/memory dependencies. Both API categories require tested vision, JSON-output, authentication and error behavior, and secure handling of any configured key.
+- Selected approach (Option B, 2026-10-10): explicit three-category metadata and consistent consent, selection, verification, transfer and scheduling rules, preserving the shared prompt/parser/validation/review/handoff contracts.
+- Implementation sequencing: retain the existing Remote API path, validate Built-in on-device models, and implement/validate the supported companion fork and expense-app profile changes under the integration goal. Requirements alignment is complete; companion implementation remains pending.
 
 Needed details:
 - initial supported remote provider profiles, if any
@@ -461,7 +492,7 @@ AC-006: Invalid handoff files are preserved in `receipt_jsons_error`, ambiguous 
 
 AC-007: Image-backed workflow succeeds without optional `receiptPhotoLink` because required Version 2 `receiptImageRelativePath` supplies H. Typed Version 3 succeeds with explicit null image path and empty H.
 
-AC-008: A user can open Settings, select the local provider or a configured OpenAI-compatible provider, choose a model id, and see which provider will be used for the next extraction.
+AC-008: A user can configure Built-in on-device, Same-phone server, or Remote API in Settings, choose the applicable model ID, explicitly select an eligible provider on Main, and see its category/name for the next extraction. Same-phone profiles remain eligible with remote opt-in disabled.
 
 AC-009: With no remote provider configured, the app does not send receipt data to a third-party AI provider.
 
@@ -469,7 +500,7 @@ AC-010: A user can create at least two named OpenAI-compatible profiles, restart
 
 AC-011: Saving, editing, clearing, and deleting one profile affects only that profile's secure credential alias; no API-key value is present in Room or plain preferences.
 
-AC-012: Disabling remote access, deleting the selected profile, or resolving a missing selection chooses the local provider without making a remote receipt request; a legacy single-profile configuration migrates at most once.
+AC-012: Disabling remote access while a Remote API profile is selected chooses Built-in on-device and cancels pending/active remote work without another remote request; disabling it while Same-phone server or Built-in on-device is selected preserves that selection and its work. Deleting either selected API profile or resolving a missing selection chooses Built-in on-device without automatic extraction. Built-in model unavailability offers setup/manual recovery. A legacy single-profile configuration migrates at most once.
 
 AC-013: After a clean install or upgrade from the first multi-profile release, the saved-profile list contains the bundled LM Studio Gemma configuration alongside profiles such as OpenRouter, unless an equivalent or previously migrated LM Studio profile already exists.
 
@@ -483,7 +514,7 @@ AC-017: Version 2 creates missing monthly image folders safely before upload; fa
 
 AC-018: Given an itemized receipt without tax or tip and a finalized receipt for the same transaction with tax and tip, extraction returns one expense whose `totalAmount` is the finalized amount rather than the subtotal or the sum of both receipt totals. Ambiguous receipt pairs are flagged `low_confidence` for user review.
 
-AC-019: Exporting provider configuration produces a versioned `.json` document containing every saved remote profile and the selector snapshot, with no API-key value, credential alias, or persistence timestamp.
+AC-019: Exporting provider configuration produces a v3 `.json` document containing every saved Same-phone server and Remote API profile, category/output-mode metadata, and the selector snapshot, with no API-key value from either app, credential alias, or persistence timestamp.
 
 AC-020: Importing a valid provider-configuration document displays a preview before mutation, imports every profile in one transaction, preserves non-conflicting IDs, remaps conflicting IDs, and leaves the current selection and remote-provider setting unchanged.
 
@@ -493,7 +524,7 @@ AC-022: Main shows compact provider selection and verification, contextual OneDr
 
 AC-023: A Main → Settings → Main round trip retains the current receipt review and any in-flight extraction/export state, and repeated Settings activation creates no duplicate destination.
 
-AC-024: Verify checks the installed local Gemma model file when local is effective, or tests the selected saved remote profile without using an editor draft; changing selection while an operation runs does not change that operation's snapshot.
+AC-024: Verify checks the expense app's installed Gemma model file for Built-in on-device, or tests the selected saved Same-phone server/Remote API profile using its saved endpoint/model/output mode and effective key without using an editor draft. A successful models response alone does not establish inference readiness. Changing selection shall not mutate an active extraction snapshot; profile/editor changes shall cancel stale discovery/verification results.
 
 AC-025: Settings Back/Up protects unsaved profile edits, and Main derives both its OneDrive message and export availability from one readiness rule with contextual recovery actions and no Disconnect action.
 
@@ -507,13 +538,13 @@ AC-029: Unit tests and a disposable-workbook Excel COM canary pass before the He
 
 AC-030: Confirming an unchanged `low_confidence` receipt produces JSON with `extractionStatus: "confirmed"`. Editing any review field before export produces `extractionStatus: "manual"`, and retrying a failed export retains its saved status.
 
-AC-031: A JSON Schema extraction request is valid JSON with an outer receipts array schema; the provider check and receipt extraction both work with their respective schemas. Debug output is hidden by default, exposes the raw response or error when enabled, and shows each generated export JSON with its publication state.
+AC-031: In JSON Schema mode, an extraction request is valid JSON with an outer receipts array schema; the provider check and receipt extraction both work with their respective schemas. Debug output is hidden by default, exposes the raw response or error with credentials redacted when enabled, and shows each generated export JSON with its publication state. Prompt-only mode is checked separately by AC-054.
 
 AC-032: Each selected image is prepared without inference and exposes its complete processed preview with Close/Back and Remove. Enabled oversized reduction previews the exact sub-200-KB JPEG sent on Extract all; otherwise original bytes are retained. Appending/removing images preserves other item identities and previews.
 
 AC-033: The selected-image viewer opens at fit scale. Pinching and the labeled Zoom in/Zoom out controls change magnification within the defined range; dragging moves the image only while zoomed and cannot leave it lost offscreen. The controls reflect their minimum/maximum limits, Close and Back work at any zoom, and reopening or selecting another image restores fit scale without changing extraction, review, or export state.
 
-AC-034: Enabling the remote-profile checkbox persists through editing, restart and v2 provider transfer; migrated profiles and v1 imports default it to false. Main shows the control only for the selected, enabled, opted-in remote profile. Disallowed and stale callbacks send no commands; eligible requests use the saved endpoint/credential and no receipt data or inference. Connect retries until models endpoint reachability or its deadline, profile changes cancel stale checks, disconnect reports only a request, and resume resets and refreshes observations without disconnecting or blocking extraction.
+AC-034: Enabling the Remote API profile checkbox persists through editing, restart and v3 provider transfer, with v1/v2 compatibility; profiles migrated from Room v1 and v1 imports default it to false. Main shows the control only for the selected, enabled, opted-in Remote API profile. Built-in/Same-phone selections and disallowed/stale callbacks send no commands; same-phone saves/imports cannot enable the flag. Eligible requests use the saved endpoint/credential and no receipt data or inference. Connect retries until models endpoint reachability or its deadline, profile changes cancel stale checks, disconnect reports only a request, and resume resets and refreshes observations without disconnecting or blocking extraction.
 
 AC-035: Main displays VPN detected, no VPN detected for this app, or VPN detection unavailable separately from models endpoint checking/reachable/unavailable. External VPN changes update detection and trigger a fresh endpoint check without commands; periodic checks detect endpoint outages/recovery. A reachable LAN endpoint with no detected VPN does not turn the command switch on. Backgrounding stops checks and network callbacks; returning refreshes current observations. The reusable checker supports custom URL/path/key/timeouts, empty model lists, HTTP/invalid-response errors and prompt cancellation, with no credential leakage or receipt transmission.
 
@@ -527,7 +558,7 @@ AC-039: Load models for a new and an existing profile, choose an ID, save, and v
 
 AC-040: Select five images, inspect them without inference, remove through thumbnail and full viewer, append two images, and retain unaffected identities/order/processed bytes. Duplicate URI/over-capacity additions explain rejection; picker cancellation changes nothing.
 
-AC-041: Six delayed fake-provider items with concurrency three obey 3.5-second start spacing and never exceed three in flight, including recovery/retries. Out-of-order results and an isolated failure remain in their own groups; repeated Extract all creates one run and later runs process new/changed items only.
+AC-041: Six delayed fake Remote API items with concurrency three obey 3.5-second start spacing and never exceed three in flight, including recovery/retries. Built-in on-device and Same-phone server each remain serial and are not subject to remote start spacing. Out-of-order results and an isolated failure remain in their own groups; repeated Extract all creates one run and later runs process new/changed items only.
 
 AC-042: Remove queued/active items, cancel remaining, edit sources and retry, then deliver late callbacks: removed/stale attempts cannot publish or export. Collapse/expand, rotation and Main/Settings navigation retain state; process restoration never automatically submits data.
 
@@ -548,6 +579,26 @@ AC-049: In a mixed batch containing multiple image transactions and a typed expe
 AC-050: Windows validates and expands mixed V2/V3 arrays atomically with respect to validation, then applies existing singleton processing. Exercise dry run, malformed members, duplicate IDs, conflicting member files, interrupted staging, replay and per-member quarantine. No production workbook or scheduled job changes are part of this implementation.
 
 AC-051: Create two no-image items. Before extraction, each shows Extract and a disabled Confirm and export. Default-only CAD/blank drafts disable Extract; expense text in any field enables it. Extract one item and verify only its draft is submitted, the other item is unchanged, and repeated busy taps start no extra request. Completion/failure offers Retry extraction; retry protects edits, preserves the source, and cannot export failed or stale results. Confirm and export requires current valid results and ready OneDrive, targets the stable item/transaction IDs once, and preserves saved export retry/completion states. Unit and emulator UI tests shall cover these transitions; provider/physical-device checks are separate.
+
+AC-052: On clean install and upgrade, Built-in on-device remains the default unless a valid existing selection is preserved. Creating/saving/importing/duplicating a same-phone profile never selects it or enables remote access. Explicit selection works with remote opt-in off; selected-profile deletion/missing-profile fallback and consent revocation follow AC-012. Tailscale controls/observations remain absent for same-phone selection. Same-phone verification exercises saved endpoint/model/output mode, while discovery sends no receipt data or inference.
+
+AC-053: Configure both apps first with `http://127.0.0.1:8080/v1`, then a custom port/base path; save/restart and verify discovery, verification and extraction route beneath the persisted matching endpoint. Reject invalid ports/paths, user-info/query/fragment, DNS names, alternate loopback forms, LAN/remote hosts, redirects, and same-phone Tailscale flags. Verify actual companion loopback binding with tunnels disabled, narrow client cleartext permission, active-endpoint display, stale discovery/verification cancellation on edits, and unchanged active extraction snapshots.
+
+AC-054: In Prompt-only JSON mode, verification and photo/typed requests omit `response_format` and retain their existing JSON prompts. Equivalent valid JSON with different whitespace/key ordering passes semantic verification; invalid or semantically incorrect verification responses fail. Malformed/invalid extraction output blocks export with retry/manual recovery. JSON Schema/JSON Object request behavior and multi-transaction/typed validation remain covered by regression tests.
+
+AC-055: With no key in either app, discovery/verification/extraction succeed with no Authorization header. Matching configured keys succeed; a configured server rejects missing/wrong client keys with HTTP 401 before inference and offers actionable recovery. Test independent profile key replacement/clearing/deletion/duplication, secure storage across restart in both apps, immutable request credentials, and absence of keys from logs/errors/Debug/Room/plain preferences/transfer. Clearing the client key omits authentication; clearing the server key restores unauthenticated access.
+
+AC-056: Migrate the model-profile Room database v2 to v3 without changing existing IDs/settings/credentials/selection/opt-in or creating duplicates. Import v1/v2 files as Remote API with existing output modes and compatible Tailscale defaults, even for loopback URLs. Round-trip v3 category, endpoint and output mode; import credential-free same-phone profiles with preview/atomic conflict copying and unchanged selection/opt-in. Invalid categories/modes/endpoints/capabilities produce no partial mutation. Confirm batch/export database and handoff versions are unaffected.
+
+AC-057: Unit tests in the companion cover string and multimodal message parsing, inline-image decoding and remote-image rejection, vision initialization/non-vision rejection, independent expense conversations, inference serialization, unload coordination, cancellation/disconnect/timeout resource release, endpoint persistence, authentication, and startup/model-readiness reporting. Expense-app unit tests cover category eligibility/fallback, endpoint/authentication/request snapshots, output modes, discovery/verification, migration/transfer/duplication, deadlines and recovery. This repo's shared/Android unit tests, companion unit tests, relevant device tests, and debug builds for both apps shall pass before implementation is marked complete.
+
+AC-058: Delayed same-phone batch/retry requests never exceed one active inference; a slow valid response is not cut off by a shorter transport timeout before the 180-second extraction deadline. Cancellation/deadline aborts the request and releases companion inference before later work runs; late results cannot publish. Exercise stopped server, busy inference, missing/non-vision model, invalid output, authentication recovery, and server restart while preserving drafts, completed results and explicit retry/manual recovery without automatic fallback extraction.
+
+AC-059: Integration checks exercise discovery, typed extraction, single-photo extraction, multiple transactions in one image and mixed batches at default/custom endpoints with authentication disabled and enabled. Verify authentication failure/recovery, restart with persisted server endpoint/key, independent conversations and invalid-output export blocking. Existing normalized output, review, image-first Version 2, image-free typed Version 3 and Export All contracts remain unchanged.
+
+AC-060: Physical-phone validation records the companion/model/version, offline direct-image and typed extraction after provisioning, extraction accuracy, latency, memory pressure and companion foreground/background behavior. Report device/model limitations and outstanding validation separately from unit tests/builds; no HTTP-only or fake-provider result shall establish vision quality or device completion.
+
+AC-061: Copy expense Main verification and failed-item diagnostics, including multiline HTTP/code guidance, and Settings provider-test/discovery failures; verify exact clipboard contents and current messages after updates, without automatic clipboard writes or draft credentials. Copy distinct saved/custom and active/default companion endpoints and verify each exact URL; stopped/unavailable states expose no Copy action. Unit tests, relevant clipboard UI checks and both debug builds shall pass.
 
 ## No-image item actions implementation verification
 
