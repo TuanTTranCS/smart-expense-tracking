@@ -61,8 +61,15 @@ class MainActivity : ComponentActivity() {
         )
         val graphAuthenticationClient = MsalGraphAuthenticationClient(this)
         val exportImageStore = AndroidReceiptExportImageStore(this, imageLoader)
+        val exportDao = ReceiptExportDatabase.getInstance(this).receiptExportDao()
+        val exportRepository = RoomReceiptExportRepository(exportDao)
+        val historyController = com.hugo.smartexpense.app.receiptexport.ReceiptHistoryController(
+            exportRepository,
+            com.hugo.smartexpense.app.receiptexport.RoomReceiptHistoryStore(exportDao),
+            com.hugo.smartexpense.app.receiptexport.MicrosoftGraphReceiptCorrectionRemote(graphAuthenticationClient),
+        )
         val exportController = ReceiptExportController(
-            repository = RoomReceiptExportRepository(ReceiptExportDatabase.getInstance(this).receiptExportDao()),
+            repository = exportRepository,
             imagePreparer = exportImageStore,
             imageReader = exportImageStore,
             publisher = MicrosoftGraphReceiptExportPublisher(graphAuthenticationClient),
@@ -72,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 }
             },
             sourceDeviceName = { settingsRepository.settings.value.deviceName },
+            exportAccountId = { graphAuthenticationClient.loadCurrentAccount()?.id },
         )
         val profilesFactory = ModelProfilesViewModel.Factory {
             ModelProfilesViewModel(
@@ -158,6 +166,7 @@ class MainActivity : ComponentActivity() {
                 exportReviewedBatch = { reviews, saved -> exportController.startBatch(reviews, saved) },
                 loadExportBatchRecords = exportController::batchRecordsForExpense,
                 loadSavedExportRecord = exportController::savedRecordForExpense,
+                historyController = historyController,
             )
         }
 

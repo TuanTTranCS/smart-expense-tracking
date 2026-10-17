@@ -1,7 +1,9 @@
 package com.hugo.smartexpense.extraction
 
 object ReceiptExtractionPrompt {
-    val multimodal: String = """
+    val multimodal: String get() = multimodal(ExtractionDateContext.capture())
+
+    fun multimodal(context: ExtractionDateContext): String = context.guidance() + "\n\n" + """
         Extract expenses from the receipt image.
         Return only a JSON object containing a "receipts" array of expense objects with these fields:
         {"receipts":[{
@@ -25,7 +27,9 @@ object ReceiptExtractionPrompt {
         Do not include markdown, comments, explanations, or extra keys.
     """.trimIndent()
 
-    val text: String = """
+    val text: String get() = text(ExtractionDateContext.capture())
+
+    fun text(context: ExtractionDateContext): String = context.guidance() + "\n\n" + """
         Extract expenses from the receipt text.
         Return only a JSON object containing a "receipts" array of expense objects with these fields:
         {"receipts":[{

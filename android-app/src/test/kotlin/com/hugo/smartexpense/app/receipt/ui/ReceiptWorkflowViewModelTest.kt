@@ -448,6 +448,7 @@ private class FakeSettingsRepository(initial: AppSettings) : AppSettingsReposito
     override fun setDebugOutputEnabled(enabled: Boolean) {
         state.value = state.value.copy(debugOutputEnabled = enabled)
     }
+    override fun setThemeMode(mode: com.hugo.smartexpense.app.settings.data.AppThemeMode) {}
     override fun setDeviceNameOverride(name: String) {
         state.value = state.value.copy(deviceNameOverride = name)
     }

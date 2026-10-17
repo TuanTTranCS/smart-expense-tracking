@@ -24,7 +24,7 @@ try {
         startedAt = $started.ToString('o')
         completedAt = [datetimeoffset]::UtcNow.ToString('o')
         outcome = 'run_failure'
-        counts = [pscustomobject]@{ discovered=0; inserted=0; exactDuplicate=0; review=0; invalidError=0; deferred=0; failed=1 }
+        counts = [pscustomobject]@{ discovered=0; inserted=0; updated=0; exactDuplicate=0; review=0; invalidError=0; deferred=0; failed=1 }
         items = @([pscustomobject]@{ fileName=$null; outcome='failed'; reasonCode='run_failure'; message=$_.Exception.Message })
     }
     if (-not $DryRun) {

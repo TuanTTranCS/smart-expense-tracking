@@ -61,7 +61,7 @@ class MicrosoftGraphReceiptExportPublisher(
         record.validateSourceContract()
         if (record.sourceType == ReceiptSourceType.IMAGE) require(imageBytes != null && imageBytes.isNotEmpty())
         else require(imageBytes == null)
-        val token = accessToken()
+        val token = accessToken(setOfNotNull(record.exportAccountId))
 
         if (record.sourceType == ReceiptSourceType.IMAGE) {
             val imagePath = requireNotNull(record.receiptImageRelativePath)
@@ -70,7 +70,7 @@ class MicrosoftGraphReceiptExportPublisher(
             put(token, imagePath, "image/jpeg", requireNotNull(imageBytes))
         }
         put(token, record.temporaryJsonRelativePath, "application/json", record.toHandoffJson().toByteArray())
-        commitJson(token, record.temporaryJsonRelativePath, record.jsonRelativePath.substringAfterLast('/'))
+        commitJson(token, record.temporaryJsonRelativePath, record.jsonRelativePath, record.toHandoffJson())
     }
 
     override suspend fun publishBatch(batch: ReceiptExportBatch, records: List<Pair<ReceiptExportRecord, ByteArray?>>) {
@@ -81,7 +81,7 @@ class MicrosoftGraphReceiptExportPublisher(
             if (record.sourceType == ReceiptSourceType.IMAGE) require(bytes != null && bytes.size in 1 until 200 * 1024)
             else require(bytes == null)
         }
-        val token = accessToken()
+        val token = accessToken(records.mapNotNull { it.first.exportAccountId }.toSet())
         for ((record, bytes) in records) {
             coroutineContext.ensureActive()
             if (record.sourceType == ReceiptSourceType.IMAGE) {
@@ -96,11 +96,20 @@ class MicrosoftGraphReceiptExportPublisher(
         val json = records.joinToString(prefix = "[", postfix = "]") { it.first.toHandoffJson() }
         put(token, batch.temporaryJsonRelativePath, "application/json", json.toByteArray(Charsets.UTF_8))
         coroutineContext.ensureActive()
-        commitJson(token, batch.temporaryJsonRelativePath, batch.jsonRelativePath.substringAfterLast('/'))
+        commitJson(token, batch.temporaryJsonRelativePath, batch.jsonRelativePath, json)
     }
 
-    private suspend fun accessToken(): String = try {
-            authenticationClient.acquireAccessTokenSilently()
+    private suspend fun accessToken(expectedAccountIds: Set<String>): String = try {
+            // Legacy snapshots have no account binding and retain their existing recovery behavior.
+            // New snapshots must never be retried into a different signed-in user's drive.
+            if (expectedAccountIds.isNotEmpty()) {
+                if (expectedAccountIds.size != 1 || authenticationClient.loadCurrentAccount()?.id !in expectedAccountIds)
+                    throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
+            }
+            val token = authenticationClient.acquireAccessTokenSilently()
+            if (expectedAccountIds.isNotEmpty() && authenticationClient.loadCurrentAccount()?.id !in expectedAccountIds)
+                throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
+            token
         } catch (_: GraphAuthenticationException.InteractionRequired) {
             throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
         } catch (_: GraphAuthenticationException.ConsentDeclined) {
@@ -143,14 +152,20 @@ class MicrosoftGraphReceiptExportPublisher(
         if (response.statusCode !in 200..299) throw response.toExportException()
     }
 
-    private fun commitJson(token: String, temporaryPath: String, finalName: String) {
-        val body = """{"name":"${finalName.jsonEscape()}","@microsoft.graph.conflictBehavior":"replace"}"""
+    private fun commitJson(token: String, temporaryPath: String, finalPath: String, expectedJson: String) {
+        val finalName = finalPath.substringAfterLast('/')
+        val body = """{"name":"${finalName.jsonEscape()}","@microsoft.graph.conflictBehavior":"fail"}"""
         val response = execute(
             token, "PATCH", "$GRAPH_ROOT/me/drive/root:/${encodePath(temporaryPath)}:", "application/json", body.toByteArray(),
         )
-        // A conflict means the deterministic final commit marker already exists from an
-        // earlier attempt whose local success update was interrupted.
-        if (response.statusCode !in 200..299 && response.statusCode != 409) throw response.toExportException()
+        if (response.statusCode == 409) {
+            // A deterministic name alone does not prove that our payload was committed.
+            val existing = execute(token, "GET", "$GRAPH_ROOT/me/drive/root:/${encodePath(finalPath)}:/content",
+                "application/json", byteArrayOf())
+            if (existing.statusCode !in 200..299 || !handoffJsonEquivalent(existing.body, expectedJson)) {
+                throw ReceiptExportException(ReceiptExportFailure.PATH_CONFLICT)
+            }
+        } else if (response.statusCode !in 200..299) throw response.toExportException()
     }
 
     private fun execute(

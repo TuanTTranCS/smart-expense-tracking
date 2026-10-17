@@ -4,11 +4,13 @@ class ReceiptExtractionPipeline(
     private val modelClient: ReceiptModelClient,
     private val parser: ReceiptExtractionParser = ReceiptExtractionParser(),
     private val ocrClient: OcrClient? = null,
+    private val dateProvider: () -> java.time.LocalDate = { java.time.LocalDate.now() },
 ) {
     fun reviewTypedExpense(draft: TypedExpenseDraft): ReceiptExtractionPipelineResult {
         val errors = draft.validationErrors().values.toList()
         if (errors.isNotEmpty()) return ReceiptExtractionPipelineResult.Failed(errors, emptyList())
-        val parsed = parser.parse(modelClient.reviewTypedExpense(draft), requireReviewMetadata = true)
+        val context = ExtractionDateContext(dateProvider())
+        val parsed = parser.parse(modelClient.reviewTypedExpense(draft, TypedExpenseReviewPrompt.text(context)), requireReviewMetadata = true)
         val attempts = listOf(ReceiptExtractionAttempt(ReceiptExtractionMode.TYPED_TEXT, parsed))
         if (parsed is ParseResult.Invalid) return ReceiptExtractionPipelineResult.Failed(parsed.errors, attempts)
         parsed as ParseResult.Valid
@@ -25,10 +27,11 @@ class ReceiptExtractionPipeline(
     }
 
     fun extract(receiptImage: ReceiptImage): ReceiptExtractionPipelineResult {
+        val context = ExtractionDateContext(dateProvider())
         val attempts = mutableListOf<ReceiptExtractionAttempt>()
 
         if (modelClient.supportsDirectImageInput()) {
-            val rawOutput = modelClient.extractFromReceiptImage(receiptImage)
+            val rawOutput = modelClient.extractFromReceiptImage(receiptImage, ReceiptExtractionPrompt.multimodal(context))
             val parseResult = parser.parse(rawOutput)
             attempts += ReceiptExtractionAttempt(ReceiptExtractionMode.DIRECT_IMAGE, parseResult)
             if (parseResult is ParseResult.Valid) {
@@ -45,7 +48,7 @@ class ReceiptExtractionPipeline(
             )
 
         val receiptText = availableOcrClient.extractText(receiptImage)
-        val rawOutput = modelClient.extractFromReceiptText(receiptText)
+        val rawOutput = modelClient.extractFromReceiptText(receiptText, ReceiptExtractionPrompt.text(context))
         val parseResult = parser.parse(rawOutput)
         attempts += ReceiptExtractionAttempt(ReceiptExtractionMode.OCR_TEXT, parseResult)
 

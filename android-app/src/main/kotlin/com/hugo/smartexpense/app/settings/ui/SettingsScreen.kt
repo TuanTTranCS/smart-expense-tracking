@@ -2,6 +2,8 @@ package com.hugo.smartexpense.app.settings.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
@@ -11,6 +13,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.Alignment
@@ -49,6 +52,7 @@ import com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesPanel
 import com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesUiState
 import com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesViewModel
 import com.hugo.smartexpense.app.settings.data.AppSettings
+import com.hugo.smartexpense.app.settings.data.AppThemeMode
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -64,6 +68,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onBatchMaxConcurrencyChange: (Int) -> Unit = {},
     onBatchStartSpacingMillisChange: (Long) -> Unit = {},
+    onThemeModeChange: (AppThemeMode) -> Unit = {},
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, profilesViewModel) {
@@ -101,6 +106,7 @@ fun SettingsScreen(
             }
             Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
         }
+        ThemeSettingsCard(settings.themeMode, onThemeModeChange)
         SettingsCard("Models and providers") {
             ModelProfilesPanel(
                 state = profileState,
@@ -167,6 +173,34 @@ fun SettingsScreen(
                 TextButton(onClick = { confirmDiscard = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep editing") }
             },
         )
+    }
+}
+
+@Composable
+internal fun ThemeSettingsCard(themeMode: AppThemeMode, onThemeModeChange: (AppThemeMode) -> Unit) {
+    SettingsCard("Appearance") {
+        Text("Theme", style = MaterialTheme.typography.titleMedium)
+        Text("System follows your device's light or dark appearance.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.selectableGroup()) {
+            AppThemeMode.entries.forEach { mode ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(selected = themeMode == mode, role = Role.RadioButton,
+                            onClick = { onThemeModeChange(mode) })
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = themeMode == mode, onClick = null)
+                    Text(when (mode) {
+                        AppThemeMode.LIGHT -> "Light"
+                        AppThemeMode.DARK -> "Dark"
+                        AppThemeMode.SYSTEM -> "System"
+                    })
+                }
+            }
+        }
     }
 }
 

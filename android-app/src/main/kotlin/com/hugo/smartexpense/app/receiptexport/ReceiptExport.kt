@@ -49,6 +49,13 @@ data class ReceiptExportRecord(
     val sourceType: ReceiptSourceType = ReceiptSourceType.IMAGE,
     val notes: String = "",
     val batchId: String? = null,
+    val completedAt: String? = null,
+    val historyHidden: Boolean = false,
+    val exportAccountId: String? = null,
+    val lastCorrectionOperationId: String? = null,
+    val lastRemoteStatus: ReceiptRemoteStatus? = null,
+    val lastRemoteCheckedAt: String? = null,
+    val lastRemoteMessage: String? = null,
 )
 
 enum class ReceiptExportFailure {
@@ -95,6 +102,7 @@ data class ReceiptExportBatch(
     val jsonRelativePath: String,
     val temporaryJsonRelativePath: String,
     val committed: Boolean = false,
+    val completedAt: String? = null,
 )
 
 interface ReceiptExportRepository {
@@ -106,6 +114,11 @@ interface ReceiptExportRepository {
         error("This repository does not support durable batch exports.")
     }
     suspend fun markBatchCommitted(batchId: String) { error("Batch persistence is unavailable.") }
+    suspend fun markBatchCompleted(batchId: String, completedAt: String) = markBatchCommitted(batchId)
+    fun observeCompleted(): kotlinx.coroutines.flow.Flow<List<ReceiptExportRecord>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    suspend fun setHistoryHidden(expenseId: String, hidden: Boolean) { error("History persistence is unavailable.") }
+    suspend fun reconcileCommittedBatches() {}
+
 }
 
 fun interface ReceiptExportPublisher {
@@ -133,6 +146,7 @@ class ReceiptExportController(
     private val sourceDeviceName: () -> String = { "Android device" },
     private val now: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val newExpenseId: () -> String = { UUID.randomUUID().toString() },
+    private val exportAccountId: suspend () -> String? = { null },
 ) {
     suspend fun start(review: ReceiptReviewState): ReceiptExportRecord = start(review) {}
 
@@ -151,18 +165,19 @@ class ReceiptExportController(
             onRecordSaved(saved)
             return retry(saved.expenseId)
         }
-        val initial = createSnapshot(review, expenseId, now())
+        val initial = createSnapshot(review, expenseId, now(), exportAccountId())
         repository.save(initial)
         onRecordSaved(initial)
         return resume(initial)
     }
 
-    private fun createSnapshot(review: ReceiptReviewState, expenseId: String, timestamp: ZonedDateTime): ReceiptExportRecord {
+    private fun createSnapshot(review: ReceiptReviewState, expenseId: String, timestamp: ZonedDateTime, accountId: String?): ReceiptExportRecord {
         validate(review)
         val confirmedReview = review.confirmedForExport()
         val paths = ReceiptExportPaths.create(expenseId, timestamp)
         return ReceiptExportRecord(
             expenseId = expenseId,
+            exportAccountId = accountId,
             createdAt = timestamp.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             sourceDeviceId = sourceDeviceId(),
             sourceDeviceName = sourceDeviceName().trim().ifBlank { "Android device" },
@@ -213,8 +228,9 @@ class ReceiptExportController(
             val name = "expense_batch_${timestamp.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))}_${batchId.filter(Char::isLetterOrDigit).take(8)}.json"
             val path = "$HANDOFF_FOLDER/$name"
             val newBatch = ReceiptExportBatch(batchId, timestamp.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), ids, path, "$path.uploading")
+            val accountId = exportAccountId()
             val records = reviews.map { (id, review) ->
-                createSnapshot(review, id, timestamp).copy(batchId = batchId, jsonRelativePath = path, temporaryJsonRelativePath = "$path.uploading")
+                createSnapshot(review, id, timestamp, accountId).copy(batchId = batchId, jsonRelativePath = path, temporaryJsonRelativePath = "$path.uploading")
             }
             require(records.mapNotNull { it.receiptImageRelativePath }.distinct().size == records.count { it.receiptImageRelativePath != null }) {
                 "Expense identities must produce unique image paths."
@@ -231,7 +247,12 @@ class ReceiptExportController(
         val record = repository.get(expenseId) ?: return null
         val batchId = record.batchId ?: return record
         val batch = requireNotNull(repository.getBatch(batchId)) { "The saved export batch could not be found." }
-        return if (batch.committed) record.copy(status = ReceiptExportStatus.EXPORTED, failure = null, retryAfterSeconds = null) else record
+        return if (batch.committed) {
+            repository.reconcileCommittedBatches()
+            val latest = repository.get(expenseId) ?: record
+            if (latest.status == ReceiptExportStatus.EXPORTED) latest else
+                saveAndReturn(latest.copy(status = ReceiptExportStatus.EXPORTED, failure = null, retryAfterSeconds = null))
+        } else record
     }
 
     suspend fun batchRecordsForExpense(expenseId: String): List<ReceiptExportRecord> {
@@ -251,7 +272,7 @@ class ReceiptExportController(
     private suspend fun resumeBatch(batch: ReceiptExportBatch): List<ReceiptExportRecord> {
         var records = batch.expenseIds.map { requireNotNull(repository.get(it)) }
         if (batch.committed || records.all { it.status == ReceiptExportStatus.EXPORTED }) {
-            return records.map { if (it.status == ReceiptExportStatus.EXPORTED) it else saveAndReturn(it.copy(status = ReceiptExportStatus.EXPORTED, failure = null, retryAfterSeconds = null)) }
+            return records.map { if (it.status == ReceiptExportStatus.EXPORTED) it else saveAndReturn(it.copy(status = ReceiptExportStatus.EXPORTED, completedAt = it.completedAt ?: batch.completedAt, failure = null, retryAfterSeconds = null)) }
         }
         try {
             val prepared = mutableListOf<Pair<ReceiptExportRecord, ByteArray?>>()
@@ -272,7 +293,9 @@ class ReceiptExportController(
             coroutineContext.ensureActive()
             publisher.publishBatch(batch, prepared)
             // Persist one commit marker before member updates, allowing restart after any member save.
-            repository.markBatchCommitted(batch.batchId)
+            val completedAt = now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            repository.markBatchCompleted(batch.batchId, completedAt)
+            records = records.map { it.copy(completedAt = completedAt) }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -287,7 +310,7 @@ class ReceiptExportController(
                 if (latest.status == ReceiptExportStatus.EXPORTED) latest else saveAndReturn(latest.copy(status = ReceiptExportStatus.FAILED, failure = failure, retryAfterSeconds = (error as? ReceiptExportException)?.retryAfterSeconds))
             }
         }
-        return records.map { saveAndReturn(it.copy(status = ReceiptExportStatus.EXPORTED)) }
+        return records.map { saveAndReturn(it.copy(status = ReceiptExportStatus.EXPORTED, completedAt = it.completedAt)) }
     }
 
     private suspend fun resume(saved: ReceiptExportRecord): ReceiptExportRecord {
@@ -314,7 +337,7 @@ class ReceiptExportController(
             current = current.copy(status = ReceiptExportStatus.READY)
             repository.save(current)
             publisher.publish(current, imageBytes)
-            saveAndReturn(current.copy(status = ReceiptExportStatus.EXPORTED))
+            saveAndReturn(current.copy(status = ReceiptExportStatus.EXPORTED, completedAt = now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)))
         } catch (error: CancellationException) {
             throw error
         } catch (error: ReceiptExportException) {
@@ -375,6 +398,7 @@ fun ReceiptExportRecord.toHandoffJson(): String {
     return buildString {
         append('{')
         field("schemaVersion", schemaVersion.toString(), quoted = false)
+        field("itemType", "pending")
         field("expenseId", expenseId)
         field("createdAt", createdAt)
         field("sourceDeviceId", sourceDeviceId)

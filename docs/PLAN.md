@@ -1,6 +1,14 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-10-12
+Last updated: 2026-10-17
+
+✅ Done (2026-10-17): [Gap 18](gap-closing-plan-details.md#gap-18-correction-archival-and-quiet-deferred-retries) adds terminal correction archival, ledger-based acknowledgement recovery, archive-aware Android retries and persistent quiet deferred retries for correction/original handoffs. Unit/wrapper/disposable Excel regressions, targeted Android tests and debug assembly pass; see [verification](12.export-history-verification.md#correction-archival-and-quiet-deferred-retries).
+
+✅ Done (2026-10-17): Hugo confirmed physical-device verification of Plan 12 and its correction-notification expense-details fix on Pixel 7. See [device confirmation](12.export-history-verification.md#pixel-7-verification-confirmation). Individual scenario/provider details were not recorded.
+
+✅ Done (2026-10-16): [Plan 12 I12-7](12.export-history-date-context-and-json-edit-plan.md#i12-7--include-expense-details-in-correction-notifications) supplies corrected expense details to successful update notifications. Actual consumer-to-renderer regressions, 55 correction assertions, 30 disposable Excel COM assertions, 17 wrapper tests, installed renderer verification and debug assembly pass; see [evidence](12.export-history-verification.md#correction-notification-expense-details-follow-up).
+
+✅ Done (2026-10-16): [Iteration 12 software and automated verification](12.export-history-verification.md) adds Room v5 History, device-local extraction date context, explicit immutable corrections, and revision-aware existing-entry Excel updates with journals/acknowledgements. Shared/Android unit tests, debug build, focused emulator tests, disposable Excel canaries and installed-wrapper parity pass. Physical-device verification of Plan 12 and the I12-7 notification fix is ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-17; detailed scenario/provider evidence is recorded separately in the verification record.
 
 ✅ Done (2026-10-12): Hugo confirmed **Verify, receipt-photo extraction and typed-expense extraction worked on Pixel 7** for plans [10a](10a.mobile-server-companion-plan.md) and [10b](10b.mobile-server-expense-app-integration-plan.md). This supersedes earlier blanket phone-verification/paired-photo Pending statements. Offline use, cancellation/retry/native drain, accuracy/latency/memory and background acceptance remain unconfirmed; see both verification records.
 
@@ -107,6 +115,8 @@ Goals:
 - Verify state-based idempotency, exact duplicate skipping, and similar-record quarantine against the monthly sheet.
 
 ### Phase 2: Android MVP
+
+✅ Done (2026-10-17): Added persistent Light/Dark/System selection under **Settings → Appearance → Theme**, with System default/fallback and immediate shared-theme/system-bar updates (`REQ-UI-015`, `AC-066`). Seven new regressions cover persistence, system resolution, accessible callbacks, draft/content retention and Android 9/15 bars. All 308 Android unit tests pass; 94 shared tests remain passing/up to date. Debug assembly and device-test compilation pass. See [Gap 17](gap-closing-plan-details.md#gap-17-app-theme-preference); physical-device appearance verification remains pending.
 
 Export All and dedicated narrative prompt revision: ✅ Done on 2026-10-07. All remaining inputs must be ready; one ordered mixed JSON array uses image-first publication, Room v4 immutable membership and restart-safe reconciliation. Windows list expansion preserves existing per-expense processing. Unit/emulator/copy-workbook checks and debug build pass; see [the batch plan verification record](9.multiple-and-no-image-support-plan.md). Voice capture and production rollout remain future work.
 

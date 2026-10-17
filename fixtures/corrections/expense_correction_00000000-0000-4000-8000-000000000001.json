@@ -1,0 +1,25 @@
+{
+  "correctionProtocolVersion": 1,
+  "operationId": "00000000-0000-4000-8000-000000000001",
+  "expenseId": "99999999-1234-4123-8123-123456789012",
+  "expectedRevision": 0,
+  "expectedPayloadJson": "{\"schemaVersion\":3,\"inputSource\":\"typed\",\"hasReceiptImage\":false,\"expenseId\":\"99999999-1234-4123-8123-123456789012\",\"createdAt\":\"2026-10-05T12:00:00-07:00\",\"sourceDeviceId\":\"fixture-device\",\"sourceDeviceName\":\"Test Phone\",\"receiptDate\":\"2026-10-05\",\"merchantName\":\"Typed Merchant\",\"totalAmount\":12.34,\"currency\":\"CAD\",\"extractionStatus\":\"manual\",\"receiptImageRelativePath\":null,\"notes\":\"  Lunch\\nwith colleagues  \",\"itemType\":\"pending\"}",
+  "expectedPayloadSha256": "399f043b574a2d4e3be030c719792a9f36ec3320edae13aa55f61e402f723802",
+  "payload": {
+    "schemaVersion": 3,
+    "inputSource": "typed",
+    "hasReceiptImage": false,
+    "expenseId": "99999999-1234-4123-8123-123456789012",
+    "createdAt": "2026-10-05T12:00:00-07:00",
+    "sourceDeviceId": "fixture-device",
+    "sourceDeviceName": "Test Phone",
+    "receiptDate": "2026-10-05",
+    "merchantName": "Typed Merchant",
+    "totalAmount": 25,
+    "currency": "CAD",
+    "extractionStatus": "manual",
+    "receiptImageRelativePath": null,
+    "notes": "  Lunch\nwith colleagues  ",
+    "itemType": "processed"
+  }
+}

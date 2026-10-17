@@ -13,7 +13,8 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 1. Choose receipt images or add typed expenses with **No receipt image**. Prepare and inspect up to 20 inputs in one mixed batch.
 2. Choose **Extract all**, or **Extract** on a no-image card, to request review from the selected LLM provider. Use **Retry extraction** to reprocess one item.
 3. Review each group's results, then export individually or choose **Export All** to confirm every remaining transaction and publish one JSON list. All remaining items must be ready and valid. Images use paired Version 2 JPEG/JSON; typed expenses use manual Version 3 JSON with notes and no image.
-4. A five-minute cron job on a mini PC reads the synchronized handoff, updates the correct monthly sheet in the Excel workbook, and posts reportable results to a private Discord channel.
+4. Successful exports move to persistent **History**. Refresh processing status, edit eligible pending/done expenses, and explicitly **Re-export** a correction. Delete/Undo removes only local History. Compatible Windows consumer capability is required for re-export; JSON publication and Excel application appear separately.
+5. A five-minute cron job on a mini PC reads the synchronized handoff, updates the correct monthly sheet in the Excel workbook, and posts reportable results to a private Discord channel.
 
 ## Features
 
@@ -22,11 +23,12 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 - Select multiple images, inspect their exact processed previews with zoom controls, remove/Undo, and add more before **Extract all**.
 - Mix images with no-image expenses described in any field, including Merchant or Notes alone. The LLM interprets expressions such as `15+50`, dates such as `Oct 7 2026`, and currency names; original drafts stay visible beside normalized results and suggestions for confirmation.
 - A dedicated no-image prompt accepts natural expense narratives and returns the shared receipt format, ready for future voice-transcribed text.
+- Image/OCR/typed prompts receive today's device-local reference date to interpret unclear dates for review; missing dates still require correction.
 - No-image cards show **Extract / Retry extraction** and **Confirm and export**; confirmation requires a current valid review and ready OneDrive access.
 - Collapse input groups and retry one failed input while retaining the other results and stable export identities.
 - Review each distinct transaction separately, correct fields when needed, and export low-confidence receipts as `confirmed` or corrected receipts as `manual`.
 - Keep receipt work on Main, with provider, OneDrive, image-preprocessing, and device-name settings in Settings.
-- Main and Settings follow system light/dark appearance and Android 12+ dynamic colors, with readable receipt cards, bundled Inter/Roboto Mono fonts and accessible settings rows.
+- Choose **Light**, **Dark**, or **System** in **Settings → Appearance → Theme**. Your choice is saved and applies across Expenses, History, and Settings, with Android 12+ dynamic colors.
 
 ### 2. Extract with a provider you control
 
@@ -42,12 +44,14 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 - Preserve image-first Version 2 handoffs; explicit typed Version 3 handoffs omit images and keep Excel column H empty. The compatible Windows processor must be deployed before publishing typed records.
 - **Export All** publishes one ordered JSON array after every required image upload. Deploy the compatible Windows processor before using combined lists; retries preserve the original export membership.
 - Windows accepts CAD only; other currencies are quarantined for review without conversion. Notes remain in archived JSON.
+- New objects include `itemType: pending`; done corrections use `processed` in immutable, revision-checked operations that update the existing Excel entry. Deploy the [compatible consumer](docs/12.correction-protocol.md) before enabling re-export.
 
 ### 4. Update Excel and notify privately
 
 - An agent harness such as Hermes Agent or OpenCode manages the five-minute cron schedule and the private Discord communication on the mini PC.
 - Its deterministic script-only job processes synchronized OneDrive handoffs and updates the Excel workbook through desktop Excel.
-- Empty runs stay quiet; inserts, duplicates, and review/error outcomes are delivered to the configured private Discord channel.
+- Empty runs stay quiet; inserts, corrections, duplicates, and review/error outcomes are delivered to the configured private Discord channel. Successful corrections include the updated expense details.
+- Hermes archives applied corrections in `receipt_jsons_done`, routes conflicts/invalid files to review/error, and keeps deferred operations queued. Unchanged deferred handoffs notify once; retries continue quietly until the reason or outcome changes.
 
 ## Prerequisites
 
@@ -104,6 +108,8 @@ The repository also includes contract fixtures and PowerShell checks in `fixture
 Batch Settings default to one item at a time and 3.5 seconds between remote request starts, with a maximum of three concurrent items. On-device inference stays serial. Measure your model/server before increasing concurrency.
 
 ## Implementation status
+
+Plan 12 (History, date context, and expense corrections) and its correction-notification detail fix are ✅ Done and verified on Pixel 7, confirmed by Hugo on 2026-10-17. See [verification](docs/12.export-history-verification.md#pixel-7-verification-confirmation).
 
 Multiple-image and no-image support, including free-text entry, Export All, and item-level extraction/export actions, is ✅ Done and verified on Pixel 7, confirmed by Hugo on 2026-10-08.
 

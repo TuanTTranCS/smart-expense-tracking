@@ -1,6 +1,7 @@
 package com.hugo.smartexpense.app.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
@@ -13,9 +14,10 @@ import androidx.compose.ui.Modifier
 internal fun SmartExpenseAppContent(
     modifier: Modifier = Modifier,
     contentWindowInsets: WindowInsets = WindowInsets.safeDrawing,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    SmartExpenseTheme {
+    SmartExpenseTheme(darkTheme = darkTheme) {
         Surface(modifier.fillMaxSize()) {
             // Reserve system UI space outside the scroll viewport and consume it once
             // for both destinations. safeDrawing also covers display cutouts and the IME.

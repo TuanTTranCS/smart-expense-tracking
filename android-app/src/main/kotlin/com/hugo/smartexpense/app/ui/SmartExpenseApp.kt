@@ -1,6 +1,12 @@
 package com.hugo.smartexpense.app.ui
 
 import android.app.Activity
+import android.graphics.Color
+import android.os.Build
+import android.view.Window
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.core.view.WindowCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
@@ -41,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val MAIN_ROUTE = "main"
+private const val HISTORY_ROUTE = "history"
 private const val SETTINGS_ROUTE = "settings"
 
 @Composable
@@ -58,6 +65,8 @@ fun SmartExpenseApp(
     val graphState by graphViewModel.uiState.collectAsStateWithLifecycle()
     val workflowState by workflowViewModel.uiState.collectAsStateWithLifecycle()
     val settings by settingsRepository.settings.collectAsStateWithLifecycle()
+    val darkTheme = settings.themeMode.isDarkTheme(isSystemInDarkTheme())
+    SideEffect { updateSystemBarAppearance(activity.window, darkTheme) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, profilesViewModel) {
@@ -79,7 +88,7 @@ fun SmartExpenseApp(
     }
 
     LaunchedEffect(profileState.selectorState.remoteProvidersEnabled) { if (!profileState.selectorState.remoteProvidersEnabled) workflowViewModel.revokeRemoteAccess() }
-    SmartExpenseAppContent {
+    SmartExpenseAppContent(darkTheme = darkTheme) {
         NavHost(navController, startDestination = MAIN_ROUTE) {
             composable(MAIN_ROUTE) {
                 var pickerTarget by remember { mutableStateOf<String?>(null) }
@@ -129,9 +138,24 @@ fun SmartExpenseApp(
                     onTransactionChange = workflowViewModel::updateTransaction,
                     onTransactionExport = workflowViewModel::exportTransaction,
                     onExportAll = workflowViewModel::exportAll,
+                    onOpenHistory = { navController.navigate(HISTORY_ROUTE) { launchSingleTop = true; restoreState = true } },
                     onManualValues = workflowViewModel::useManualValues,
                     onLoadThumbnail = workflowViewModel::loadPreparedThumbnail,
                     onLoadPreparedImage = workflowViewModel::loadPreparedImage,
+                )
+            }
+            composable(HISTORY_ROUTE) {
+                com.hugo.smartexpense.app.receipt.ui.ReceiptHistoryScreen(
+                    state = workflowState,
+                    onExpenses = { navController.popBackStack(MAIN_ROUTE, false) },
+                    onSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } },
+                    onRefresh = workflowViewModel::refreshHistory,
+                    onEdit = workflowViewModel::editHistory,
+                    onDelete = workflowViewModel::deleteHistory,
+                    onUndo = workflowViewModel::undoDeleteHistory,
+                    onDraftChange = workflowViewModel::updateHistoryDraft,
+                    onCancel = workflowViewModel::cancelHistoryEdit,
+                    onPublish = workflowViewModel::publishHistoryEdit,
                 )
             }
             composable(SETTINGS_ROUTE) {
@@ -159,6 +183,7 @@ fun SmartExpenseApp(
                     profileState = profileState,
                     profilesViewModel = profilesViewModel,
                     settings = settings,
+                    onThemeModeChange = settingsRepository::setThemeMode,
                     onReduceOversizedImagesChange = settingsRepository::setReduceOversizedImages,
                     onDebugOutputEnabledChange = settingsRepository::setDebugOutputEnabled,
                     onDeviceNameChange = settingsRepository::setDeviceNameOverride,
@@ -170,6 +195,20 @@ fun SmartExpenseApp(
                 )
             }
         }
+    }
+}
+
+@Suppress("DEPRECATION")
+internal fun updateSystemBarAppearance(window: Window, darkTheme: Boolean) {
+    // Android 9 needs the same light/dark scrims used by enableEdgeToEdge;
+    // newer versions enforce navigation-bar contrast using the icon appearance.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        window.navigationBarColor = if (darkTheme) Color.argb(0x80, 0x1b, 0x1b, 0x1b)
+            else Color.argb(0xe6, 0xff, 0xff, 0xff)
+    }
+    WindowCompat.getInsetsController(window, window.decorView).apply {
+        isAppearanceLightStatusBars = !darkTheme
+        isAppearanceLightNavigationBars = !darkTheme
     }
 }
 

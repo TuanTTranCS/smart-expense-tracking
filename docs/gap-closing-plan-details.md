@@ -1,6 +1,39 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-10-12
+Last updated: 2026-10-17
+
+## Gap 18: Correction Archival and Quiet Deferred Retries
+
+Status: ✅ Done (2026-10-17) — implementation and automated verification.
+
+- Archive applied immutable correction operations in `receipt_jsons_done` after durable workbook/state/acknowledgement completion; route terminal conflicts and invalid operations to review/error with sidecar reasons.
+- Repair acknowledgements from the local ledger after archival, retry interrupted moves without another workbook update, and reject differing archive collisions.
+- Persist deferred notification identity/reason so unchanged retries stay quiet across restarts while processing continues; report changed reasons and terminal outcomes.
+- Added Android reconciliation of matching archived operations and public operation identity during delayed acknowledgement sync; archive placement confirms publication only.
+- Verified lifecycle, recovery, notification renderers and dry-run behavior against `REQ-W-002/003/006/007/009/011/016`, `AC-065` and `AC-067`. **144 correction**, **17 deferred-notification**, **40 disposable Excel correction** and **117 existing consumer assertions/canaries** pass, plus **18 wrapper** and **17 Android correction tests**. Batch/typed/contract regressions and the debug APK build pass. See [evidence](12.export-history-verification.md#correction-archival-and-quiet-deferred-retries). README/protocol/requirements updated.
+
+## Gap 17: App Theme Preference
+
+Status: ✅ Done (2026-10-17) — implementation and automated verification.
+
+- Added an accessible Light/Dark/System radio group under **Settings → Appearance → Theme**, backed by the existing SharedPreferences settings repository and StateFlow. Missing/unknown saved values use System.
+- Applied the selected appearance immediately across Expenses, History and Settings, preserving dynamic colors, safe drawing insets, content state and unsaved profile edits. System-bar icons follow the app appearance; Android 9 navigation-bar scrims update with the selection.
+- Verified against `REQ-UI-015` and `AC-066` with seven new unit regressions covering persistence, invalid-value fallback, system resolution, full Settings callbacks/profile-draft preservation, live root appearance/content identity, and Android 9/15 system-bar behavior. Existing theme contrast and layout tests remain passing.
+- Verification: `gradlew.bat test :android-app:assembleDebug :android-app:compileDebugAndroidTestKotlin --max-workers=2 --console=plain` succeeds: **308 Android tests** pass, **94 shared tests** remain passing/up to date, APK assembly and device-test compilation pass. README updated. Physical-device appearance verification remains pending; instrumentation tests were not executed for this change.
+
+✅ Done (2026-10-17): Hugo confirmed physical-device verification of Plan 12 and its correction-notification expense-details fix on Pixel 7. See [device confirmation](12.export-history-verification.md#pixel-7-verification-confirmation). Individual scenario/provider details were not recorded.
+
+## Gap 16: Export History, Date Context, and JSON Corrections
+
+- ✅ Done (2026-10-16): Plan 12 I12-7 closes the missing expense details in successful correction notifications. Populate the existing result detail fields from validated corrected data and include source device; retain reason-only conflict output. Actual producer-to-renderer JSON/JSONL, PowerShell and Python regressions pass: **55 correction assertions**, **30 disposable Excel COM assertions**, **17 wrapper tests**, installed renderer parity/direct rendering and debug assembly. Updated `REQ-W-011`/`AC-065`, checked `AC-028`, and updated README. No production job invocation or notification was needed; see [evidence](12.export-history-verification.md#correction-notification-expense-details-follow-up).
+
+Planning artifact and I12-1..6 software implementation/automated verification: ✅ Done (2026-10-16). Physical-device verification of Plan 12 and the I12-7 notification fix is ✅ Done on Pixel 7, confirmed by Hugo on 2026-10-17; detailed scenario/provider evidence is recorded separately in the verification record.
+
+- See [iteration 12](12.export-history-date-context-and-json-edit-plan.md) for persistent History with automatic movement after publication and local Delete/Undo, device-local reference dates in image/OCR/typed prompts, and eligible exported-expense editing/re-export with `itemType: pending|processed`.
+- ✅ Done (2026-10-16): Hugo confirmed both pending and done expenses are editable; processed corrections must update existing Excel entries. Inspected `C:\Users\tuant\AppData\Local\hermes\scripts\smart-expense-excel-update.py`, the main PowerShell entry/module, alternative notification entry, and wrapper test. Added concrete state migration, revision-aware workbook updates, updated-count notification support, installed-wrapper delivery, and isolated tests to the plan. Both product decisions are resolved.
+- ✅ Done: Room v5 History, dated prompts, remote status/drafts/editor, immutable correction protocol, local v2 revision ledger, journalled Excel updates/relocation and updated notifications. **94 shared/301 Android unit tests**, debug assembly/test compilation, **14 emulator tests**, **48 correction assertions**, **27 disposable Excel correction assertions**, existing **117 consumer assertions/canaries** and **16 wrapper tests** pass. Exact installed-wrapper SHA256 parity is verified; see [verification](12.export-history-verification.md).
+- ✅ Done: Requirements and handoff contract distinguish immutable published/retry snapshots from explicit corrections and allow reference-based date inference. Stable identities, batch members, normalized images, local removal and recoverable retries remain protected.
+- ✅ Done: README describes History, reference-date extraction, corrections and consumer capability gating. Verification did not invoke the production processor or modify its queue/workbook/schedule. Pixel 7 verification of Plan 12 and the notification fix is ✅ Done, confirmed by Hugo on 2026-10-17; detailed cloud/provider scenarios are separately unrecorded.
 
 ## Gap 15: Adaptive Main and Settings UI
 

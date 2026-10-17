@@ -113,7 +113,7 @@ class RoomReceiptExportRepositoryTest {
             db.version = 3
         }
         val migratedDatabase = Room.databaseBuilder(context, ReceiptExportDatabase::class.java, name)
-            .addMigrations(ReceiptExportDatabase.MIGRATION_3_4).allowMainThreadQueries().build()
+            .addMigrations(ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
         try {
             assertEquals(typed, RoomReceiptExportRepository(migratedDatabase.receiptExportDao()).get(typed.expenseId))
         } finally {
@@ -155,7 +155,7 @@ class RoomReceiptExportRepositoryTest {
             db.version = version
         }
         val migratedDatabase = Room.databaseBuilder(context, ReceiptExportDatabase::class.java, name)
-            .addMigrations(ReceiptExportDatabase.MIGRATION_1_2, ReceiptExportDatabase.MIGRATION_2_3, ReceiptExportDatabase.MIGRATION_3_4).allowMainThreadQueries().build()
+            .addMigrations(ReceiptExportDatabase.MIGRATION_1_2, ReceiptExportDatabase.MIGRATION_2_3, ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
         try {
             val migrated = RoomReceiptExportRepository(migratedDatabase.receiptExportDao())
             assertEquals(pending, migrated.get(pending.expenseId))

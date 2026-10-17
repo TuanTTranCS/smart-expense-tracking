@@ -100,11 +100,13 @@ fun ReceiptWorkflowScreen(
     onLoadThumbnail: suspend (BatchItemState) -> ReceiptImage? = { it.image },
     onLoadPreparedImage: suspend (BatchItemState) -> ReceiptImage? = { it.image },
     onExportAll: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Smart Expense", style = MaterialTheme.typography.headlineMedium)
+            Text("Expenses", style = MaterialTheme.typography.headlineMedium)
+            TextButton(onClick = onOpenHistory) { Text("History") }
             TextButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.semantics { contentDescription = "Open settings" },

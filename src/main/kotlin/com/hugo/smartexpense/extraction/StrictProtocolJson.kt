@@ -1,13 +1,20 @@
 package com.hugo.smartexpense.extraction
 
 /** Small bounded RFC 8259 decoder; duplicate fields and trailing data are rejected. */
-internal object StrictProtocolJson {
-    fun objectValue(text: String): Map<String, Any?> {
+object StrictProtocolJson {
+    /** Decode exactly one bounded JSON value, rejecting trailing data and duplicate fields. */
+    fun value(text: String): Any? {
         require(text.toByteArray(Charsets.UTF_8).size <= 1_048_576) { "Response exceeds 1 MiB." }
         val parser = Parser(text)
         val value = parser.value(0)
         parser.space()
-        require(parser.index == text.length && value is Map<*, *>) { "Expected one JSON object." }
+        require(parser.index == text.length) { "Expected one JSON value." }
+        return value
+    }
+
+    fun objectValue(text: String): Map<String, Any?> {
+        val value = value(text)
+        require(value is Map<*, *>) { "Expected one JSON object." }
         @Suppress("UNCHECKED_CAST") return value as Map<String, Any?>
     }
     private class Parser(val text: String) {

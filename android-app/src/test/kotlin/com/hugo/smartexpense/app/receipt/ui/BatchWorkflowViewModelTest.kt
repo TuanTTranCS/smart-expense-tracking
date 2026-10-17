@@ -25,6 +25,7 @@ class BatchWorkflowViewModelTest {
         override val settings = MutableStateFlow(AppSettings())
         override fun setReduceOversizedImages(enabled: Boolean) { settings.value=settings.value.copy(reduceOversizedImages=enabled) }
         override fun setDebugOutputEnabled(enabled: Boolean) { settings.value=settings.value.copy(debugOutputEnabled=enabled) }
+        override fun setThemeMode(mode: com.hugo.smartexpense.app.settings.data.AppThemeMode) {}
         override fun setDeviceNameOverride(name: String) {}
     }
     private fun vm(extract: suspend () -> List<ReceiptReviewState> = { listOf(review()) }, typed: suspend (ManualExpenseDraft) -> List<ReceiptReviewState> = { listOf(review()) }, store: PreparedBatchStore? = null,

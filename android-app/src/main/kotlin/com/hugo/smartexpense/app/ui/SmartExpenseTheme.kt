@@ -58,7 +58,7 @@ internal val ExpenseTypography = Typography().let { base ->
     )
 }
 
-/** Follows system appearance; Android 12+ also supplies wallpaper-derived color roles. */
+/** Uses the selected appearance; Android 12+ also supplies wallpaper-derived color roles. */
 @Composable
 internal fun SmartExpenseTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

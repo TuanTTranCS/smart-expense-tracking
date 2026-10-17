@@ -1,6 +1,32 @@
 # Handoff Contract
 
-Last updated: 2026-10-07
+Last updated: 2026-10-17
+
+## Iteration 12: itemType and immutable corrections
+
+Every newly written singleton and Export All member includes `"itemType":"pending"`.
+Readers accept an absent field as legacy pending semantics and reject all values
+other than `pending` and `processed`. This is an additive extension of image
+Version 2 and typed Version 3; it is independent of current OneDrive folder/status.
+A standalone `processed` object must never insert a new Excel expense.
+
+Explicit History corrections retain the original expense ID, creation timestamp,
+source/image identity and compatible unknown fields. They use `manual` provenance,
+`pending` for a verified queued expense or `processed` for a verified done expense.
+The original file/list and its member order remain immutable. Field changes use
+the versioned [correction protocol](12.correction-protocol.md), which specifies
+operation IDs, prior-payload SHA256/revisions, pending overlays, consumer
+acknowledgements, journalled workbook recovery and capability gating. Publish
+complete `.uploading` bytes before a create-only final-name commit; conflicts
+require exact operation-content reconciliation. A published correction is not an
+applied Excel update until the consumer acknowledges it.
+
+Hermes moves applied correction operations unchanged into `receipt_jsons_done`
+after durable state and acknowledgement publication. Terminal conflicts use
+`receipt_jsons_review`, invalid operations use `receipt_jsons_error`, and deferred
+operations remain queued for retry. Acknowledgements remain recoverable from the
+local ledger after archival. Repeated deferrals with the same reason stay quiet;
+changed reasons and terminal outcomes are reportable.
 
 ## Purpose
 

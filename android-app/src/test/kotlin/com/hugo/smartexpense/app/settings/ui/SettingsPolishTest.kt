@@ -19,6 +19,7 @@ import com.hugo.smartexpense.app.modelprofile.ui.EnumChoice
 import com.hugo.smartexpense.app.modelprofile.ui.ModelProfileTestService
 import com.hugo.smartexpense.app.modelprofile.ui.ModelProfilesViewModel
 import com.hugo.smartexpense.app.settings.data.AppSettings
+import com.hugo.smartexpense.app.settings.data.AppThemeMode
 import com.hugo.smartexpense.extraction.ProviderTestResult
 import com.hugo.smartexpense.extraction.WritableApiKeyStore
 import org.junit.Rule
@@ -35,6 +36,28 @@ import kotlin.test.assertTrue
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SettingsPolishTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun themeSelectionDispatchesOnceAndPreservesUnsavedProfile() {
+        val settings = mutableStateOf(AppSettings())
+        val changes = mutableListOf<AppThemeMode>()
+        val vm = viewModel(FakeRepository())
+        compose.setContent {
+            val state by vm.uiState.collectAsState()
+            SmartExpenseTheme(darkTheme = settings.value.themeMode.isDarkTheme(false)) {
+                SettingsScreen(state, vm, settings.value, {}, {}, {}, {}, {}, {},
+                    onThemeModeChange = { changes += it; settings.value = settings.value.copy(themeMode = it) })
+            }
+        }
+        compose.onNodeWithText("Add profile").performScrollTo().performClick()
+        compose.onNodeWithText("Display name").performScrollTo().performTextInput("Unsaved theme test")
+        compose.onNodeWithText("Dark").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Light").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("System").performScrollTo().performClick().assertIsSelected()
+        compose.runOnIdle {
+            assertEquals(listOf(AppThemeMode.DARK, AppThemeMode.LIGHT, AppThemeMode.SYSTEM), changes)
+            assertEquals("Unsaved theme test", vm.uiState.value.editor!!.draft.displayName)
+        }
+    }
 
     @Test fun toggleRowsDispatchOnceAndReflectUpdatedSettings() {
         val settings = mutableStateOf(AppSettings())

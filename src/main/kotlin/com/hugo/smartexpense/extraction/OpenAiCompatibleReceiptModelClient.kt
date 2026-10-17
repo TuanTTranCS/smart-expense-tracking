@@ -8,10 +8,10 @@ class OpenAiCompatibleReceiptModelClient(
     private val apiKeyStore: ApiKeyStore,
     private val transport: OpenAiCompatibleApiTransport,
 ) : ReceiptModelClient {
-    override fun reviewTypedExpense(draft: TypedExpenseDraft): String = executeWithInvalidJsonRecovery(
-        buildTextRequest(TypedExpenseReviewPrompt.text, draft.modelInput(), "typed_expense_review", typedReviewSchema),
+    override fun reviewTypedExpense(draft: TypedExpenseDraft, prompt: String): String = executeWithInvalidJsonRecovery(
+        buildTextRequest(prompt, draft.modelInput(), "typed_expense_review", typedReviewSchema),
         if (provider.structuredOutputFormat == RemoteStructuredOutputFormat.JSON_SCHEMA)
-            buildTextRequest(TypedExpenseReviewPrompt.text, draft.modelInput(), "typed_expense_review", typedReviewSchema, false)
+            buildTextRequest(prompt, draft.modelInput(), "typed_expense_review", typedReviewSchema, false)
         else null,
     )
     override fun supportsDirectImageInput(): Boolean = provider.inputMode == RemoteInputMode.DIRECT_IMAGE

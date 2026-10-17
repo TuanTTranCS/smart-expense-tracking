@@ -12,6 +12,7 @@ data class AppSettings(
     val detectedDeviceName: String = "Android device",
     val batchMaxConcurrency: Int = 1,
     val batchStartSpacingMillis: Long = 3_500,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
 ) {
     val deviceName: String get() = deviceNameOverride.ifBlank { detectedDeviceName }
 }
@@ -23,6 +24,7 @@ interface AppSettingsRepository {
     fun setDeviceNameOverride(name: String)
     fun setBatchMaxConcurrency(value: Int) {}
     fun setBatchStartSpacingMillis(value: Long) {}
+    fun setThemeMode(mode: AppThemeMode)
 }
 
 class SharedPreferencesAppSettingsRepository(
@@ -37,10 +39,16 @@ class SharedPreferencesAppSettingsRepository(
             detectedDeviceName = detectedDeviceName,
             batchMaxConcurrency = preferences.getInt(BATCH_MAX_CONCURRENCY, 1).coerceIn(1, 3),
             batchStartSpacingMillis = preferences.getLong(BATCH_START_SPACING, 3_500).coerceIn(0, 60_000),
+            themeMode = AppThemeMode.fromPreference(preferences.getString(THEME_MODE, null)),
         ),
     )
 
     override val settings: StateFlow<AppSettings> = mutableSettings.asStateFlow()
+
+    override fun setThemeMode(mode: AppThemeMode) {
+        preferences.edit().putString(THEME_MODE, mode.preferenceValue).apply()
+        mutableSettings.value = mutableSettings.value.copy(themeMode = mode)
+    }
 
     override fun setReduceOversizedImages(enabled: Boolean) {
         preferences.edit().putBoolean(REDUCE_OVERSIZED_IMAGES, enabled).apply()
@@ -71,6 +79,7 @@ class SharedPreferencesAppSettingsRepository(
     }
 
     private companion object {
+        const val THEME_MODE = "theme_mode"
         const val REDUCE_OVERSIZED_IMAGES = "reduce_oversized_images"
         const val DEBUG_OUTPUT_ENABLED = "debug_output_enabled"
         const val DEVICE_NAME_OVERRIDE = "device_name_override"

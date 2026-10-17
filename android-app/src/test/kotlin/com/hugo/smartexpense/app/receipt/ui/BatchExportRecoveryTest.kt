@@ -28,6 +28,7 @@ class BatchExportRecoveryTest {
         override val settings = MutableStateFlow(AppSettings())
         override fun setReduceOversizedImages(enabled: Boolean) {}
         override fun setDebugOutputEnabled(enabled: Boolean) {}
+        override fun setThemeMode(mode: com.hugo.smartexpense.app.settings.data.AppThemeMode) {}
         override fun setDeviceNameOverride(name: String) {}
     }
 

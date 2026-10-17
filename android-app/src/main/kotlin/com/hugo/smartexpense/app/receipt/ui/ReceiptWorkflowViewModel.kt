@@ -8,6 +8,9 @@ import com.hugo.smartexpense.app.receiptexport.ReceiptExportFailure
 import com.hugo.smartexpense.app.receiptexport.ReceiptExportRecord
 import com.hugo.smartexpense.app.receiptexport.ReceiptExportStatus
 import com.hugo.smartexpense.app.receiptexport.toHandoffJson
+import com.hugo.smartexpense.app.receiptexport.ReceiptHistoryController
+import com.hugo.smartexpense.app.receiptexport.ReceiptCorrectionDraft
+import com.hugo.smartexpense.app.receiptexport.ReceiptRemoteObservation
 import com.hugo.smartexpense.app.settings.data.AppSettingsRepository
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ReceiptImage
@@ -38,6 +41,14 @@ data class ReceiptWorkflowUiState(
     val reviews: List<ReceiptReviewState> = emptyList(),
     val selectedImage: ReceiptImage? = null,
     val selectedImageUri: String? = null,
+    val history: List<ReceiptExportRecord> = emptyList(),
+    val historyObservations: Map<String, ReceiptRemoteObservation> = emptyMap(),
+    val historyEditingId: String? = null,
+    val historyDraft: ReceiptReviewState? = null,
+    val historyBusy: Boolean = false,
+    val historyRetryOnly: Boolean = false,
+    val historyMessage: String? = null,
+    val historyUndoId: String? = null,
 ) {
     val review: ReceiptReviewState? get() = reviews.firstOrNull()
     val pendingExportCount: Int get() = items.sumOf { item -> item.transactions.count { !it.review.exportComplete } }
@@ -90,6 +101,7 @@ class ReceiptWorkflowViewModel(
     private val loadExportBatchRecords: (suspend (String) -> List<ReceiptExportRecord>)? = null,
     private val loadSavedExportRecord: (suspend (String) -> ReceiptExportRecord?)? = null,
     private val captureProvider: suspend (ModelProfile?) -> WorkflowProviderSnapshot = { WorkflowProviderSnapshot(it) },
+    private val historyController: ReceiptHistoryController? = null,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(ReceiptWorkflowUiState())
     val uiState: StateFlow<ReceiptWorkflowUiState> = mutableUiState.asStateFlow()
@@ -105,6 +117,14 @@ class ReceiptWorkflowViewModel(
     private val draftSaveMutex = Mutex()
     private val saveJobs = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     init {
+        historyController?.let { controller -> viewModelScope.launch {
+            try {
+                withContext(operationDispatcher) { controller.reconcile() }
+                controller.observeCompleted().collect { rows -> mutableUiState.update { it.copy(history = rows) } }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { mutableUiState.update { it.copy(historyMessage = "History could not be loaded: ${error.message}") } }
+        } }
+
         viewModelScope.launch {
             settingsRepository.settings.collect { settings ->
                 if (!settings.debugOutputEnabled) mutate { state -> state.copy(items = state.items.map { item -> item.copy(rawFailureOutput = "", transactions = item.transactions.map { tx -> tx.copy(review = tx.review.copy(rawModelOutput = "")) }) }) }
@@ -139,6 +159,7 @@ class ReceiptWorkflowViewModel(
                     return@launch
                 }
                 mutableUiState.update { state -> state.copy(items = restored.map { item -> if (settingsRepository.settings.value.debugOutputEnabled) item else item.copy(rawFailureOutput = "", transactions = item.transactions.map { tx -> tx.copy(review = tx.review.copy(rawModelOutput = "")) }) } + state.items.filterNot { added -> restored.any { it.itemId == added.itemId } }) }
+                if (historyController != null) mutableUiState.update { it.withCompletedTransactionsRemoved() }
                 restoring = false
                 saveJobs.trySend(Unit)
                 restored.filter { it.status == BatchItemStatus.PREPARING }.forEach { prepare(it) }
@@ -151,9 +172,84 @@ class ReceiptWorkflowViewModel(
         }
     }
     private fun mutate(change: (ReceiptWorkflowUiState) -> ReceiptWorkflowUiState) {
-        mutableUiState.update(change)
+        mutableUiState.update { state -> change(state).let { if (historyController == null) it else it.withCompletedTransactionsRemoved() } }
         if (!restoring) saveJobs.trySend(Unit)
     }
+    private fun ReceiptWorkflowUiState.withCompletedTransactionsRemoved(): ReceiptWorkflowUiState = copy(
+        items = items.mapNotNull { item ->
+            val active = item.transactions.filterNot { it.review.exportComplete }
+            if (item.transactions.isNotEmpty() && active.isEmpty()) null else item.copy(transactions = active)
+        },
+        reviews = reviews.filterNot { it.exportComplete },
+    )
+    private fun historyAction(action: suspend (ReceiptHistoryController) -> Unit) {
+        val controller = historyController ?: return
+        if (mutableUiState.value.historyBusy || mutableUiState.value.exporting) return
+        mutableUiState.update { it.copy(historyBusy = true, historyMessage = null) }
+        viewModelScope.launch {
+            try { withContext(operationDispatcher) { action(controller) } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { mutableUiState.update { it.copy(historyMessage = error.message ?: "OneDrive operation failed. Retry re-export or refresh status.") } }
+            finally { mutableUiState.update { it.copy(historyBusy = false) } }
+        }
+    }
+    fun refreshHistory(expenseId: String) = historyAction { controller ->
+        val observation = controller.inspect(expenseId)
+        mutableUiState.update { it.copy(historyObservations = it.historyObservations + (expenseId to observation)) }
+    }
+    fun editHistory(expenseId: String) = historyAction { controller ->
+        val observation = controller.inspect(expenseId)
+        mutableUiState.update { it.copy(historyObservations = it.historyObservations + (expenseId to observation)) }
+        val draft = controller.openDraft(expenseId)
+        val retryOnly = controller.hasOperation(expenseId)
+        mutableUiState.update { it.copy(historyEditingId = expenseId, historyDraft = draft.review(), historyRetryOnly = retryOnly) }
+    }
+    fun updateHistoryDraft(review: ReceiptReviewState) {
+        val state = mutableUiState.value
+        val id = state.historyEditingId ?: return
+        if (state.historyBusy || state.historyRetryOnly) return
+        mutableUiState.update { it.copy(historyDraft = review) }
+        viewModelScope.launch {
+            try { withContext(operationDispatcher) { historyController?.saveDraft(ReceiptCorrectionDraft.from(id, review)) } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { mutableUiState.update { it.copy(historyMessage = error.message) } }
+        }
+    }
+    fun cancelHistoryEdit() {
+        val id = mutableUiState.value.historyEditingId ?: return
+        historyAction { controller ->
+            controller.cancel(id)
+            mutableUiState.update { it.copy(historyEditingId = null, historyDraft = null) }
+        }
+    }
+    fun publishHistoryEdit() {
+        val state = mutableUiState.value
+        val id = state.historyEditingId ?: return
+        val draft = state.historyDraft ?: return
+        historyAction { controller ->
+            controller.prepareForPublication(ReceiptCorrectionDraft.from(id, draft))
+            try { controller.publish(id) }
+            finally {
+                val pending = controller.hasOperation(id)
+                mutableUiState.update { it.copy(historyRetryOnly = pending) }
+            }
+            mutableUiState.update { it.copy(historyEditingId = null, historyDraft = null,
+                historyMessage = "Correction published to OneDrive. Refresh to check Excel processing.") }
+        }
+    }
+    fun deleteHistory(expenseId: String) = historyAction { controller ->
+        controller.hide(expenseId, true)
+        mutableUiState.update { it.copy(historyUndoId = expenseId, historyMessage = "Deleted from local History. OneDrive and Excel are unchanged.") }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(5000)
+            mutableUiState.update { if (it.historyUndoId == expenseId) it.copy(historyUndoId = null) else it }
+        }
+    }
+    fun undoDeleteHistory() {
+        val id = mutableUiState.value.historyUndoId ?: return
+        historyAction { controller -> controller.hide(id, false); mutableUiState.update { it.copy(historyUndoId = null, historyMessage = null) } }
+    }
+
     /** Serialize background saves and export checkpoints; queued signals never carry stale snapshots. */
     private suspend fun checkpointDraft() = draftSaveMutex.withLock {
         batchStore?.let { store -> withContext(operationDispatcher) { store.save(mutableUiState.value.items) } }
@@ -330,7 +426,7 @@ class ReceiptWorkflowViewModel(
     /** The button confirms all current reviewed results; no unfinished input is silently skipped. */
     fun exportAll() {
         val state = mutableUiState.value
-        if (restoring || state.extracting || state.exporting) return
+        if (restoring || state.extracting || state.exporting || state.historyBusy) return
         if (!state.canExportAll) {
             mutate { it.copy(batchMessage = state.exportAllBlockers.joinToString(" ").ifBlank { "There are no remaining transactions to export." }) }
             return
@@ -380,7 +476,7 @@ class ReceiptWorkflowViewModel(
     }
     fun exportTransaction(itemId: String, transactionId: String) {
         val state = mutableUiState.value
-        if (restoring || state.extracting || state.exporting) return
+        if (restoring || state.extracting || state.exporting || state.historyBusy) return
         val item = state.items.find { it.itemId == itemId } ?: return
         val transaction = item.transactions.find { it.id == transactionId } ?: return
         if (transaction.revision != item.sourceRevision || transaction.review.exportComplete || item.status != BatchItemStatus.SUCCEEDED) return
@@ -472,7 +568,7 @@ class ReceiptWorkflowViewModel(
 
     fun export(index: Int) {
         val reviewSnapshot = mutableUiState.value.reviews.getOrNull(index)?.confirmedForExport() ?: return
-        if (mutableUiState.value.exporting || reviewSnapshot.exportComplete) return
+        if (mutableUiState.value.exporting || mutableUiState.value.historyBusy || reviewSnapshot.exportComplete) return
         mutableUiState.value = mutableUiState.value.copy(exporting = true, reviews = mutableUiState.value.reviews.toMutableList().apply {
             this[index] = reviewSnapshot
         })
@@ -483,13 +579,13 @@ class ReceiptWorkflowViewModel(
                 }
             }
             result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-            mutableUiState.value = mutableUiState.value.copy(
+            mutate { state -> state.copy(
                 exporting = false,
-                reviews = mutableUiState.value.reviews.toMutableList().apply { this[index] = result.fold(
+                reviews = state.reviews.toMutableList().apply { this[index] = result.fold(
                     onSuccess = { reviewSnapshot.withExportResult(it) },
                     onFailure = { reviewSnapshot.copy(message = it.message ?: "The receipt could not be exported.") },
                 ) },
-            )
+            ) }
         }
     }
 

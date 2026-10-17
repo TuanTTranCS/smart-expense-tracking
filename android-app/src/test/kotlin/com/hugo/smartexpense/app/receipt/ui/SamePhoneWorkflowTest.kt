@@ -28,6 +28,7 @@ class SamePhoneWorkflowTest {
         override val settings = MutableStateFlow(AppSettings(batchMaxConcurrency = 3, batchStartSpacingMillis = 0))
         override fun setReduceOversizedImages(enabled: Boolean) {}
         override fun setDebugOutputEnabled(enabled: Boolean) {}
+        override fun setThemeMode(mode: com.hugo.smartexpense.app.settings.data.AppThemeMode) {}
         override fun setDeviceNameOverride(name: String) {}
     }
     private fun vm(capture: suspend (ModelProfile?) -> WorkflowProviderSnapshot = { WorkflowProviderSnapshot(it) },

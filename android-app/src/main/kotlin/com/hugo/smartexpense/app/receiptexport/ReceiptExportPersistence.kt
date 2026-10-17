@@ -13,6 +13,9 @@ import androidx.room.RoomDatabase
 import androidx.room.Upsert
 import androidx.room.Transaction
 import androidx.room.Insert
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 
 @Entity(tableName = "receipt_exports")
 data class ReceiptExportEntity(
@@ -39,6 +42,13 @@ data class ReceiptExportEntity(
     @ColumnInfo(name = "source_type") val sourceType: String,
     val notes: String,
     @ColumnInfo(name = "batch_id") val batchId: String? = null,
+    @ColumnInfo(name = "completed_at") val completedAt: String? = null,
+    @ColumnInfo(name = "history_hidden", defaultValue = "0") val historyHidden: Boolean = false,
+    @ColumnInfo(name = "export_account_id") val exportAccountId: String? = null,
+    @ColumnInfo(name = "last_correction_operation_id") val lastCorrectionOperationId: String? = null,
+    @ColumnInfo(name = "last_remote_status") val lastRemoteStatus: String? = null,
+    @ColumnInfo(name = "last_remote_checked_at") val lastRemoteCheckedAt: String? = null,
+    @ColumnInfo(name = "last_remote_message") val lastRemoteMessage: String? = null,
 )
 
 @Entity(tableName = "receipt_export_batches")
@@ -49,7 +59,13 @@ data class ReceiptExportBatchEntity(
     @ColumnInfo(name = "json_relative_path") val jsonRelativePath: String,
     @ColumnInfo(name = "temporary_json_relative_path") val temporaryJsonRelativePath: String,
     val committed: Boolean,
+    @ColumnInfo(name = "completed_at") val completedAt: String? = null,
 )
+
+@Entity(tableName = "receipt_history_drafts")
+data class ReceiptHistoryDraftEntity(@PrimaryKey val expenseId: String, val dataJson: String)
+@Entity(tableName = "receipt_correction_operations")
+data class ReceiptCorrectionOperationEntity(@PrimaryKey val expenseId: String, val operationId: String, val dataJson: String)
 
 @Dao
 interface ReceiptExportDao {
@@ -74,11 +90,39 @@ interface ReceiptExportDao {
         insertRecords(records)
     }
 
+    @Query("SELECT * FROM receipt_exports WHERE status = 'EXPORTED' AND history_hidden = 0 ORDER BY julianday(COALESCE(completed_at, created_at)) DESC, expense_id ASC")
+    fun observeCompleted(): Flow<List<ReceiptExportEntity>>
+
+    @Query("UPDATE receipt_exports SET history_hidden = :hidden WHERE expense_id = :expenseId AND status = 'EXPORTED'")
+    suspend fun setHistoryHidden(expenseId: String, hidden: Boolean)
+
+    @Query("UPDATE receipt_exports SET status = 'EXPORTED', failure = NULL, retry_after_seconds = NULL, completed_at = COALESCE(completed_at, (SELECT completed_at FROM receipt_export_batches WHERE batch_id = receipt_exports.batch_id)) WHERE batch_id IN (SELECT batch_id FROM receipt_export_batches WHERE committed = 1) AND status != 'EXPORTED'")
+    suspend fun reconcileCommittedBatches()
+
+    @Query("SELECT * FROM receipt_history_drafts WHERE expenseId = :expenseId")
+    suspend fun draft(expenseId: String): ReceiptHistoryDraftEntity?
+    @Upsert suspend fun saveDraft(draft: ReceiptHistoryDraftEntity)
+    @Query("DELETE FROM receipt_history_drafts WHERE expenseId = :expenseId")
+    suspend fun deleteDraft(expenseId: String)
+    @Query("SELECT * FROM receipt_correction_operations WHERE expenseId = :expenseId")
+    suspend fun operation(expenseId: String): ReceiptCorrectionOperationEntity?
+    @Insert suspend fun saveOperation(operation: ReceiptCorrectionOperationEntity)
+    @Query("DELETE FROM receipt_correction_operations WHERE expenseId = :expenseId")
+    suspend fun deleteOperation(expenseId: String)
+    @Transaction suspend fun acknowledge(record: ReceiptExportEntity, operationId: String) {
+        check(operation(record.expenseId)?.operationId == operationId)
+        upsert(record)
+        deleteOperation(record.expenseId)
+        deleteDraft(record.expenseId)
+    }
+
+    @Query("UPDATE receipt_export_batches SET committed = 1, completed_at = :completedAt WHERE batch_id = :batchId")
+    suspend fun markBatchCompleted(batchId: String, completedAt: String)
     @Query("UPDATE receipt_export_batches SET committed = 1 WHERE batch_id = :batchId")
     suspend fun markBatchCommitted(batchId: String)
 }
 
-@Database(entities = [ReceiptExportEntity::class, ReceiptExportBatchEntity::class], version = 4, exportSchema = true)
+@Database(entities = [ReceiptExportEntity::class, ReceiptExportBatchEntity::class, ReceiptHistoryDraftEntity::class, ReceiptCorrectionOperationEntity::class], version = 5, exportSchema = true)
 abstract class ReceiptExportDatabase : RoomDatabase() {
     abstract fun receiptExportDao(): ReceiptExportDao
 
@@ -90,7 +134,22 @@ abstract class ReceiptExportDatabase : RoomDatabase() {
                 context.applicationContext,
                 ReceiptExportDatabase::class.java,
                 "receipt-exports.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+        }
+
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN completed_at TEXT")
+                db.execSQL("ALTER TABLE receipt_export_batches ADD COLUMN completed_at TEXT")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN history_hidden INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN export_account_id TEXT")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN last_correction_operation_id TEXT")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN last_remote_status TEXT")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN last_remote_checked_at TEXT")
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN last_remote_message TEXT")
+                db.execSQL("CREATE TABLE receipt_history_drafts (expenseId TEXT NOT NULL PRIMARY KEY, dataJson TEXT NOT NULL)")
+                db.execSQL("CREATE TABLE receipt_correction_operations (expenseId TEXT NOT NULL PRIMARY KEY, operationId TEXT NOT NULL, dataJson TEXT NOT NULL)")
+            }
         }
 
         val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
@@ -136,16 +195,21 @@ abstract class ReceiptExportDatabase : RoomDatabase() {
 class RoomReceiptExportRepository(
     private val dao: ReceiptExportDao,
 ) : ReceiptExportRepository {
+    override fun observeCompleted(): Flow<List<ReceiptExportRecord>> = dao.observeCompleted()
+        .onStart { dao.reconcileCommittedBatches() }.map { rows -> rows.map { it.toDomain() } }
+    override suspend fun reconcileCommittedBatches() = dao.reconcileCommittedBatches()
+    override suspend fun setHistoryHidden(expenseId: String, hidden: Boolean) = dao.setHistoryHidden(expenseId, hidden)
     override suspend fun save(record: ReceiptExportRecord) = dao.upsert(record.toEntity())
     override suspend fun get(expenseId: String): ReceiptExportRecord? = dao.get(expenseId)?.toDomain()
     override suspend fun getBatch(batchId: String): ReceiptExportBatch? = dao.getBatch(batchId)?.let {
-        ReceiptExportBatch(it.batchId, it.createdAt, it.expenseIds.split("\n"), it.jsonRelativePath, it.temporaryJsonRelativePath, it.committed)
+        ReceiptExportBatch(it.batchId, it.createdAt, it.expenseIds.split("\n"), it.jsonRelativePath, it.temporaryJsonRelativePath, it.committed, it.completedAt)
     }
     override suspend fun createBatch(batch: ReceiptExportBatch, records: List<ReceiptExportRecord>) {
         require(batch.expenseIds == records.map { it.expenseId } && records.all { it.batchId == batch.batchId })
         require(batch.expenseIds.all { it.isNotBlank() && !it.contains('\n') })
-        dao.createBatch(ReceiptExportBatchEntity(batch.batchId, batch.createdAt, batch.expenseIds.joinToString("\n"), batch.jsonRelativePath, batch.temporaryJsonRelativePath, batch.committed), records.map { it.toEntity() })
+        dao.createBatch(ReceiptExportBatchEntity(batch.batchId, batch.createdAt, batch.expenseIds.joinToString("\n"), batch.jsonRelativePath, batch.temporaryJsonRelativePath, batch.committed, batch.completedAt), records.map { it.toEntity() })
     }
+    override suspend fun markBatchCompleted(batchId: String, completedAt: String) = dao.markBatchCompleted(batchId, completedAt)
     override suspend fun markBatchCommitted(batchId: String) = dao.markBatchCommitted(batchId)
 }
 
@@ -154,7 +218,7 @@ private fun ReceiptExportRecord.toEntity() = ReceiptExportEntity(
     extractionStatus, merchantLocation, originalImageFileName, sourceImageUri,
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, status.name, failure?.name, retryAfterSeconds,
-    schemaVersion, sourceType.name, notes, batchId,
+    schemaVersion, sourceType.name, notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.name, lastRemoteCheckedAt, lastRemoteMessage,
 )
 
 private fun ReceiptExportEntity.toDomain() = ReceiptExportRecord(
@@ -163,5 +227,58 @@ private fun ReceiptExportEntity.toDomain() = ReceiptExportRecord(
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, ReceiptExportStatus.valueOf(status),
     failure?.let(ReceiptExportFailure::valueOf), retryAfterSeconds,
-    schemaVersion, ReceiptSourceType.valueOf(sourceType), notes, batchId,
+    schemaVersion, ReceiptSourceType.valueOf(sourceType), notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.let(ReceiptRemoteStatus::valueOf), lastRemoteCheckedAt, lastRemoteMessage,
 )
+
+class RoomReceiptHistoryStore(private val dao: ReceiptExportDao) : ReceiptHistoryStore {
+    override suspend fun draft(expenseId: String): ReceiptCorrectionDraft? = dao.draft(expenseId)?.let {
+        val json = org.json.JSONObject(it.dataJson)
+        ReceiptCorrectionDraft(expenseId, json.getString("merchantName"), json.getString("receiptDate"),
+            json.getString("totalAmount"), json.getString("currency"), json.getString("merchantLocation"),
+            json.getString("notes"), json.optString("accountId").ifBlank { null }, json.optString("driveId").ifBlank { null },
+            json.optString("baseFingerprint").ifBlank { null }, json.optInt("expectedRevision", 0))
+    }
+    override suspend fun saveDraft(draft: ReceiptCorrectionDraft) {
+        val json = org.json.JSONObject().apply {
+            put("merchantName", draft.merchantName); put("receiptDate", draft.receiptDate)
+            put("totalAmount", draft.totalAmount); put("currency", draft.currency)
+            put("merchantLocation", draft.merchantLocation); put("notes", draft.notes)
+            put("accountId", draft.accountId.orEmpty()); put("driveId", draft.driveId.orEmpty())
+            put("baseFingerprint", draft.baseFingerprint.orEmpty()); put("expectedRevision", draft.expectedRevision)
+        }
+        dao.saveDraft(ReceiptHistoryDraftEntity(draft.expenseId, json.toString()))
+    }
+    override suspend fun deleteDraft(expenseId: String) = dao.deleteDraft(expenseId)
+    override suspend fun discardOperation(expenseId: String) = dao.deleteOperation(expenseId)
+    override suspend fun saveOperation(operation: ReceiptCorrectionOperation) {
+        val observation = operation.observation
+        val json = org.json.JSONObject().apply {
+            put("envelope", operation.payloadJson); put("createdAt", operation.createdAt)
+            put("accountId", operation.accountId); put("driveId", observation.driveId.orEmpty())
+            put("itemId", observation.itemId.orEmpty()); put("eTag", observation.eTag.orEmpty())
+            put("checkedAt", observation.checkedAt); put("status", observation.status.name)
+        }
+        dao.saveOperation(ReceiptCorrectionOperationEntity(operation.expenseId, operation.operationId, json.toString()))
+    }
+    override suspend fun operation(expenseId: String): ReceiptCorrectionOperation? = dao.operation(expenseId)?.let { entity ->
+        val json = org.json.JSONObject(entity.dataJson)
+        val envelope = parseHandoffJson(json.getString("envelope")) as org.json.JSONObject
+        val payload = envelope.getJSONObject("payload")
+        val record = requireNotNull(dao.get(expenseId)).toDomain()
+        val corrected = ReceiptCorrectionDraft(expenseId, payload.getString("merchantName"), payload.getString("receiptDate"),
+            payload.get("totalAmount").toString(), payload.getString("currency"),
+            if (payload.isNull("merchantLocation")) "" else payload.optString("merchantLocation"), payload.optString("notes")).applyTo(record)
+            .copy(lastCorrectionOperationId = entity.operationId)
+        val base = envelope.getString("expectedPayloadJson")
+        val fingerprint = envelope.getString("expectedPayloadSha256")
+        val revision = envelope.getInt("expectedRevision")
+        val observation = ReceiptRemoteObservation(ReceiptRemoteStatus.valueOf(json.getString("status")), json.getString("checkedAt"),
+            json.getString("accountId"), json.optString("driveId").ifBlank { null }, json.optString("itemId").ifBlank { null },
+            json.optString("eTag").ifBlank { null }, fingerprint, payloadJson = base, revision = revision, correctionsEnabled = true)
+        ReceiptCorrectionOperation(entity.operationId, expenseId, fingerprint, payload.getString("itemType"),
+            json.getString("envelope"), json.getString("accountId"), json.getString("createdAt"), corrected, observation, base, revision)
+    }
+    override suspend fun acknowledge(operation: ReceiptCorrectionOperation, publishedAt: String) {
+        dao.acknowledge(operation.corrected.toEntity(), operation.operationId)
+    }
+}

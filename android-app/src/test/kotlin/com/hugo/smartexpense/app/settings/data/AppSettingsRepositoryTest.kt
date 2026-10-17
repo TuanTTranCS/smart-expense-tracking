@@ -11,6 +11,38 @@ import kotlin.test.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
 class AppSettingsRepositoryTest {
+    @Test fun themeDefaultsToSystemAndEveryChoicePersistsWithoutChangingOtherSettings() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = context.getSharedPreferences("theme-settings-test", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val repository = SharedPreferencesAppSettingsRepository(preferences)
+        assertEquals(AppThemeMode.SYSTEM, repository.settings.value.themeMode)
+        repository.setDebugOutputEnabled(true)
+        repository.setDeviceNameOverride("Hugo's phone")
+        val original = repository.settings.value
+
+        AppThemeMode.entries.forEach { mode ->
+            repository.setThemeMode(mode)
+            assertEquals(original.copy(themeMode = mode), repository.settings.value)
+            assertEquals(repository.settings.value, SharedPreferencesAppSettingsRepository(preferences).settings.value)
+        }
+    }
+
+    @Test fun unknownStoredThemeFallsBackToSystem() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = context.getSharedPreferences("invalid-theme-test", Context.MODE_PRIVATE)
+        preferences.edit().clear().putString("theme_mode", "unsupported-theme").commit()
+        assertEquals(AppThemeMode.SYSTEM, SharedPreferencesAppSettingsRepository(preferences).settings.value.themeMode)
+    }
+
+    @Test fun explicitThemesOverrideSystemAndSystemModeFollowsBothAppearances() {
+        listOf(false, true).forEach { systemDark ->
+            assertFalse(AppThemeMode.LIGHT.isDarkTheme(systemDark))
+            assertTrue(AppThemeMode.DARK.isDarkTheme(systemDark))
+            assertEquals(systemDark, AppThemeMode.SYSTEM.isDarkTheme(systemDark))
+        }
+    }
+
     @Test fun batchPolicyDefaultsAndPersistedBounds() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val preferences = context.getSharedPreferences("batch-policy-test", Context.MODE_PRIVATE)

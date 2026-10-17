@@ -9,9 +9,13 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class MicrosoftGraphReceiptExportPublisherTest {
     @Test
     fun createsFoldersThenUploadsImageBeforeTemporaryAndFinalJson() = runTest {
@@ -47,16 +51,113 @@ class MicrosoftGraphReceiptExportPublisherTest {
     }
 
     @Test
-    fun treatsFolderAndFinalNameConflictsAsIdempotentSuccess() = runTest {
+    fun acceptsFinalNameConflictOnlyAfterVerifyingTheSamePayload() = runTest {
         val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) { request ->
             when (request.method) {
                 "POST", "PATCH" -> GraphContentResponse(409)
-                "GET" -> GraphContentResponse(200, "{\"folder\":{}}")
+                "GET" -> GraphContentResponse(200, if (request.url.endsWith("/content")) sampleRecord().toHandoffJson() else "{\"folder\":{}}")
                 else -> GraphContentResponse(200)
             }
         }
 
         publisher.publish(sampleRecord(), byteArrayOf(1))
+    }
+
+    @Test
+    fun rejectsDifferentOrMissingPayloadOnFinalNameConflict() = runTest {
+        for (response in listOf(GraphContentResponse(404), GraphContentResponse(200, sampleTypedRecord().toHandoffJson()))) {
+            val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) { request ->
+                when (request.method) { "PATCH" -> GraphContentResponse(409); "GET" -> response; else -> GraphContentResponse(200) }
+            }
+            assertEquals(ReceiptExportFailure.PATH_CONFLICT,
+                assertFailsWith<ReceiptExportException> { publisher.publish(sampleTypedRecord().copy(merchantName = "Other"), null) }.failure)
+        }
+    }
+
+    @Test fun malformedExistingJsonNeverReconcilesAnExportConflict() = runTest {
+        val expected = sampleTypedRecord().toHandoffJson()
+        for (invalid in listOf(expected + " trailing", expected + "{}", expected.dropLast(1) + ",}",
+            expected.replace("\"schemaVersion\"", "'schemaVersion'"))) {
+            val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) { request ->
+                when (request.method) {
+                    "PATCH" -> GraphContentResponse(409)
+                    "GET" -> GraphContentResponse(200, invalid)
+                    else -> GraphContentResponse(200)
+                }
+            }
+            assertEquals(ReceiptExportFailure.PATH_CONFLICT,
+                assertFailsWith<ReceiptExportException> { publisher.publish(sampleTypedRecord(), null) }.failure)
+        }
+    }
+
+    @Test fun strictHandoffParserRejectsPermissiveJsonAndKeepsStructuralComparison() {
+        val valid = """{"a":1,"b":[true,null,"value"]}"""
+        assertTrue(handoffJsonEquivalent(valid, """ {"b":[true,null,"value"],"a":1.00} """))
+        assertTrue(handoffJsonEquivalent("[{\"a\":1},2]", "[ {\"a\":1.0},2.0 ]"))
+        for (invalid in listOf(valid + "x", valid + "{}", "{'a':1}", "{a:1}", "{\"a\":1,}",
+            "{\"a\":[1,]}", "{\"a\":NaN}", "{\"a\":1,\"a\":1}", "{\"a\":/*comment*/1}",
+            "[1,]", "null", "true", "[] garbage", "[".repeat(66) + "0" + "]".repeat(66),
+            "{\"a\":\"" + "x".repeat(1_048_576) + "\"}")) {
+            assertFalse(handoffJsonEquivalent(invalid, invalid), invalid.take(100))
+            assertFails { parseHandoffJson(invalid) }
+        }
+    }
+
+    @Test fun singletonAccountBindingRejectsChangedOrMissingAccountBeforeAnyUpload() = runTest {
+        for (account in listOf("different-account", null)) {
+            val authentication = FakeAuthenticationClient(account)
+            val requests = mutableListOf<GraphContentRequest>()
+            val publisher = MicrosoftGraphReceiptExportPublisher(authentication) { request ->
+                requests += request; GraphContentResponse(200)
+            }
+            val error = assertFailsWith<ReceiptExportException> {
+                publisher.publish(sampleRecord().copy(exportAccountId = "original-account"), byteArrayOf(1))
+            }
+            assertEquals(ReceiptExportFailure.RECONNECT_REQUIRED, error.failure)
+            assertEquals(0, authentication.tokenCalls)
+            assertTrue(requests.isEmpty())
+        }
+    }
+
+    @Test fun singletonAccountBindingRechecksAccountAfterTokenAcquisition() = runTest {
+        val authentication = FakeAuthenticationClient("original-account", "different-account")
+        val publisher = MicrosoftGraphReceiptExportPublisher(authentication) { error("Account changed; no upload allowed") }
+        assertEquals(ReceiptExportFailure.RECONNECT_REQUIRED, assertFailsWith<ReceiptExportException> {
+            publisher.publish(sampleTypedRecord().copy(exportAccountId = "original-account"), null)
+        }.failure)
+        assertEquals(1, authentication.tokenCalls)
+    }
+
+    @Test fun batchAccountBindingRejectsChangedAndMixedAccountsBeforeUploadingImages() = runTest {
+        val batch = ReceiptExportBatch("batch", sampleRecord().createdAt, listOf("first", "second"),
+            "$HANDOFF_FOLDER/batch.json", "$HANDOFF_FOLDER/batch.json.uploading")
+        for (bindings in listOf(listOf("original", "original"), listOf("current", "original"))) {
+            val authentication = FakeAuthenticationClient("current")
+            val requests = mutableListOf<GraphContentRequest>()
+            val publisher = MicrosoftGraphReceiptExportPublisher(authentication) { request ->
+                requests += request; GraphContentResponse(200)
+            }
+            val records = batch.expenseIds.mapIndexed { index, id ->
+                sampleRecord().copy(expenseId = id, batchId = batch.batchId, jsonRelativePath = batch.jsonRelativePath,
+                    exportAccountId = bindings[index]) to byteArrayOf(1)
+            }
+            assertEquals(ReceiptExportFailure.RECONNECT_REQUIRED, assertFailsWith<ReceiptExportException> {
+                publisher.publishBatch(batch, records)
+            }.failure)
+            assertEquals(0, authentication.tokenCalls)
+            assertTrue(requests.isEmpty())
+        }
+    }
+
+    @Test fun boundMatchingAccountAndLegacyUnboundSnapshotsRemainPublishable() = runTest {
+        for (binding in listOf("id", null)) {
+            val requests = mutableListOf<GraphContentRequest>()
+            val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) { request ->
+                requests += request; GraphContentResponse(200)
+            }
+            publisher.publish(sampleTypedRecord().copy(exportAccountId = binding), null)
+            assertEquals(listOf("PUT", "PATCH"), requests.map { it.method })
+        }
     }
 
     @Test
@@ -136,10 +237,18 @@ class MicrosoftGraphReceiptExportPublisherTest {
         assertFalse(requests.any { it.url.contains("batch.json") })
     }
 
-    private class FakeAuthenticationClient : GraphAuthenticationClient {
-        override suspend fun loadCurrentAccount() = GraphAccount("id", "User")
+    private class FakeAuthenticationClient(
+        private var accountId: String? = "id",
+        private val accountAfterToken: String? = accountId,
+    ) : GraphAuthenticationClient {
+        var tokenCalls = 0
+        override suspend fun loadCurrentAccount() = accountId?.let { GraphAccount(it, "User") }
         override suspend fun signIn(activity: Activity) = GraphAccount("id", "User")
-        override suspend fun acquireAccessTokenSilently() = "secret-token"
+        override suspend fun acquireAccessTokenSilently(): String {
+            tokenCalls++
+            accountId = accountAfterToken
+            return "secret-token"
+        }
         override suspend fun signOut() = Unit
     }
 }
