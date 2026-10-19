@@ -1,6 +1,15 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
+
+## README Presentation Refresh
+
+Status: ✅ Done (2026-10-18) — documentation only.
+
+- Added the supplied app logo, custom platform/status/stack badges, linked skill icons, and section navigation. Placed all five screenshots beside Expenses/History, appearance/provider management, and Discord reporting, with descriptive alt text and bounded display widths.
+- Folded advanced setup and milestone details into expandable sections while retaining existing configuration instructions and companion attribution.
+- Verified descriptions against `REQ-M-008/009`, `REQ-A-031`, `REQ-W-015` and `REQ-UI-015`, preserving explicit remote opt-in, correction semantics, and outstanding runtime validation.
+- Seven documentation checks pass for image coverage/placement, accessibility, local links/navigation, balanced HTML/code fences, and stack versions. All 14 hosted badge/icon URLs return SVGs; whitespace checks pass. Application code is unchanged, so application unit tests and a build were not required.
 
 ## Gap 18: Correction Archival and Quiet Deferred Retries
 

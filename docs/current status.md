@@ -1,5 +1,7 @@
 # Current Status
 
+- ✅ Done (2026-10-18): Refreshed README presentation with the supplied logo and all five screenshots beside their matching features, section navigation, custom badges, tech stack skill icons, and expandable setup/milestone details. Seven documentation checks pass; all 14 hosted badge/icon URLs return SVGs. Checked descriptions against `REQ-M-008/009`, `REQ-A-031`, `REQ-W-015` and `REQ-UI-015`; existing runtime validation limits remain documented. Documentation only; no application unit tests or build required. See [README presentation refresh](gap-closing-plan-details.md#readme-presentation-refresh).
+
 - ✅ Done (2026-10-17): Hermes archives applied correction operations in done, routes conflicts/invalid operations to review/error, repairs missing acknowledgements after archival, and retries interrupted moves without another Excel write. Unchanged deferred corrections and original handoffs notify once across restarts while retries continue; changed reasons and completion remain reportable. Android reconciles archived publication while awaiting authoritative acknowledgements. **144 correction assertions**, **17 deferred-notification assertions**, **40 disposable Excel correction assertions**, **117 existing consumer assertions/canaries**, **18 wrapper tests** and **17 Android correction tests** pass; debug assembly succeeds. Requirements/README updated; see [Gap 18](gap-closing-plan-details.md#gap-18-correction-archival-and-quiet-deferred-retries) and [verification](12.export-history-verification.md#correction-archival-and-quiet-deferred-retries).
 
 - ✅ Done (2026-10-17): Added **Settings → Appearance → Theme** with persistent Light, Dark and System choices (`REQ-UI-015`, `AC-066`). System remains the default/fallback; changes immediately update all destinations and system-bar appearance while retaining content and unsaved profile edits. All **308 Android unit tests** pass; **94 shared tests** remain passing/up to date. Debug APK assembly and device-test compilation pass. README updated; physical-device appearance verification remains pending.
@@ -9,7 +11,9 @@
 - ✅ Done: Documented Microsoft Entra ID personal-account registration, Android MSAL redirect configuration, least-privilege `Files.ReadWrite` consent, and OneDrive folder prerequisites in `README.md` with official Microsoft references.
 - ✅ Done: Documented cross-PC MSAL debug signing recovery: reuse the original ignored debug keystore to retain the current Entra redirect, or register a replacement certificate and update both redirect values.
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
+
+- ✅ Done (2026-10-18): README identifies the Same-phone AI Companion as a modified fork of [`techjarves/mobile-server`](https://github.com/techjarves/mobile-server) and records its pinned upstream commit. Checked against `REQ-M-006`; documentation only, so no application tests or build were needed.
 
 ✅ Done (2026-10-17): Hugo confirmed physical-device verification of Plan 12 and its correction-notification expense-details fix on Pixel 7. See [device confirmation](12.export-history-verification.md#pixel-7-verification-confirmation). Individual scenario/provider details were not recorded.
 
