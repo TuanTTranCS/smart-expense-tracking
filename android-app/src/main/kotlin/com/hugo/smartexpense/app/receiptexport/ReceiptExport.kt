@@ -56,6 +56,7 @@ data class ReceiptExportRecord(
     val lastRemoteStatus: ReceiptRemoteStatus? = null,
     val lastRemoteCheckedAt: String? = null,
     val lastRemoteMessage: String? = null,
+    val exportDriveId: String? = null,
 )
 
 enum class ReceiptExportFailure {
@@ -147,6 +148,7 @@ class ReceiptExportController(
     private val now: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val newExpenseId: () -> String = { UUID.randomUUID().toString() },
     private val exportAccountId: suspend () -> String? = { null },
+    private val exportDriveId: suspend () -> String? = { null },
 ) {
     suspend fun start(review: ReceiptReviewState): ReceiptExportRecord = start(review) {}
 
@@ -165,7 +167,10 @@ class ReceiptExportController(
             onRecordSaved(saved)
             return retry(saved.expenseId)
         }
-        val initial = createSnapshot(review, expenseId, now(), exportAccountId())
+        val accountId = exportAccountId()
+        val driveId = exportDriveId()
+        check(exportAccountId() == accountId) { "OneDrive account changed during export preparation." }
+        val initial = createSnapshot(review, expenseId, now(), accountId).copy(exportDriveId = driveId)
         repository.save(initial)
         onRecordSaved(initial)
         return resume(initial)
@@ -229,8 +234,10 @@ class ReceiptExportController(
             val path = "$HANDOFF_FOLDER/$name"
             val newBatch = ReceiptExportBatch(batchId, timestamp.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), ids, path, "$path.uploading")
             val accountId = exportAccountId()
+            val driveId = exportDriveId()
+            check(exportAccountId() == accountId) { "OneDrive account changed during export preparation." }
             val records = reviews.map { (id, review) ->
-                createSnapshot(review, id, timestamp, accountId).copy(batchId = batchId, jsonRelativePath = path, temporaryJsonRelativePath = "$path.uploading")
+                createSnapshot(review, id, timestamp, accountId).copy(exportDriveId = driveId, batchId = batchId, jsonRelativePath = path, temporaryJsonRelativePath = "$path.uploading")
             }
             require(records.mapNotNull { it.receiptImageRelativePath }.distinct().size == records.count { it.receiptImageRelativePath != null }) {
                 "Expense identities must produce unique image paths."

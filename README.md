@@ -60,7 +60,7 @@ Until secure, standardized bank-data sharing is broadly available, automatic exp
 1. Choose receipt images or add typed expenses with **No receipt image**. Prepare and inspect up to 20 inputs in one mixed batch.
 2. Choose **Extract all**, or **Extract** on a no-image card, to request review from the selected LLM provider. Use **Retry extraction** to reprocess one item.
 3. Review each group's results, then export individually or choose **Export All** to confirm every remaining transaction and publish one JSON list. All remaining items must be ready and valid. Images use paired Version 2 JPEG/JSON; typed expenses use manual Version 3 JSON with notes and no image.
-4. Successful exports move to persistent **History**. Refresh processing status, edit eligible pending/done expenses, and explicitly **Re-export** a correction. Delete/Undo removes only local History. Compatible Windows consumer capability is required for re-export; JSON publication and Excel application appear separately.
+4. Successful exports move to persistent **History**. Tap a receipt thumbnail to view and zoom the exported image. Refresh processing status, edit eligible pending/done expenses, and explicitly **Re-export** a correction. Delete/Undo removes only local History. Compatible Windows consumer capability is required for re-export; JSON publication and Excel application appear separately.
 5. A five-minute cron job on a mini PC reads the synchronized handoff, updates the correct monthly sheet in the Excel workbook, and posts reportable results to a private Discord channel.
 
 ## Features
@@ -197,6 +197,8 @@ The core receipt-to-Excel workflow is implemented and verified on Pixel 7. Built
 <summary><strong>Completed milestones and remaining validation</strong></summary>
 
 Plan 12 (History, date context, and expense corrections) and its correction-notification detail fix are ✅ Done and verified on Pixel 7, confirmed by Hugo on 2026-10-17. See [verification](docs/12.export-history-verification.md#pixel-7-verification-confirmation).
+
+History thumbnails open the exported JPEG with zoom/pan and Close/Back. Local copies work offline; missing copies download only on open/retry from the verified saved OneDrive account/drive. Older unbound exports need their local copy. Typed expenses show **No receipt image**; exported JPEGs may have less detail than the original photo. [I12-9 implementation and automated checks](docs/12.export-history-verification.md#history-receipt-thumbnails-and-viewer-i12-9) are ✅ Done. Hugo confirmed Pixel 7 History thumbnails and image viewing on 2026-10-25; OneDrive recovery verification remains Pending.
 
 Multiple-image and no-image support, including free-text entry, Export All, and item-level extraction/export actions, is ✅ Done and verified on Pixel 7, confirmed by Hugo on 2026-10-08.
 

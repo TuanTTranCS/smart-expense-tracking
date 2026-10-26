@@ -145,6 +145,10 @@ fun SmartExpenseApp(
                 )
             }
             composable(HISTORY_ROUTE) {
+                val loadHistoryImage: suspend (com.hugo.smartexpense.app.receiptexport.ReceiptExportRecord, Boolean, Boolean) -> com.hugo.smartexpense.app.receiptexport.ReceiptHistoryImageResult =
+                    remember(workflowViewModel, graphState.accountId, graphState.status) {
+                        { record, allowDownload, thumbnail -> workflowViewModel.loadHistoryImage(record, allowDownload, thumbnail) }
+                    }
                 com.hugo.smartexpense.app.receipt.ui.ReceiptHistoryScreen(
                     state = workflowState,
                     onExpenses = { navController.popBackStack(MAIN_ROUTE, false) },
@@ -156,6 +160,7 @@ fun SmartExpenseApp(
                     onDraftChange = workflowViewModel::updateHistoryDraft,
                     onCancel = workflowViewModel::cancelHistoryEdit,
                     onPublish = workflowViewModel::publishHistoryEdit,
+                    onLoadImage = loadHistoryImage,
                 )
             }
             composable(SETTINGS_ROUTE) {

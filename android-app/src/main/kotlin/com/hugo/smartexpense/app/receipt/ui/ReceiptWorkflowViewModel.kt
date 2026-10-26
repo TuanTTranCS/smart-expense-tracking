@@ -11,6 +11,8 @@ import com.hugo.smartexpense.app.receiptexport.toHandoffJson
 import com.hugo.smartexpense.app.receiptexport.ReceiptHistoryController
 import com.hugo.smartexpense.app.receiptexport.ReceiptCorrectionDraft
 import com.hugo.smartexpense.app.receiptexport.ReceiptRemoteObservation
+import com.hugo.smartexpense.app.receiptexport.ReceiptHistoryImageLoader
+import com.hugo.smartexpense.app.receiptexport.ReceiptHistoryImageResult
 import com.hugo.smartexpense.app.settings.data.AppSettingsRepository
 import com.hugo.smartexpense.extraction.ModelProfile
 import com.hugo.smartexpense.extraction.ReceiptImage
@@ -30,6 +32,7 @@ import com.hugo.smartexpense.extraction.ApiProfileCategory
 import com.hugo.smartexpense.extraction.ProviderCategory
 import com.hugo.smartexpense.extraction.OperationCredentialSnapshot
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -102,6 +105,7 @@ class ReceiptWorkflowViewModel(
     private val loadSavedExportRecord: (suspend (String) -> ReceiptExportRecord?)? = null,
     private val captureProvider: suspend (ModelProfile?) -> WorkflowProviderSnapshot = { WorkflowProviderSnapshot(it) },
     private val historyController: ReceiptHistoryController? = null,
+    private val historyImageLoader: ReceiptHistoryImageLoader? = null,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(ReceiptWorkflowUiState())
     val uiState: StateFlow<ReceiptWorkflowUiState> = mutableUiState.asStateFlow()
@@ -192,6 +196,25 @@ class ReceiptWorkflowViewModel(
             catch (error: Exception) { mutableUiState.update { it.copy(historyMessage = error.message ?: "OneDrive operation failed. Retry re-export or refresh status.") } }
             finally { mutableUiState.update { it.copy(historyBusy = false) } }
         }
+    }
+
+    /** Preview lifetime belongs to the screen coroutine; it never changes workflow or publication state. */
+    suspend fun loadHistoryImage(
+        record: ReceiptExportRecord,
+        allowDownload: Boolean,
+        thumbnail: Boolean,
+    ): ReceiptHistoryImageResult = withContext(operationDispatcher) {
+        fun isCurrent() = mutableUiState.value.history.any {
+            it.expenseId == record.expenseId && it.sourceType == record.sourceType &&
+                it.normalizedImageLocalPath == record.normalizedImageLocalPath &&
+                it.receiptImageRelativePath == record.receiptImageRelativePath &&
+                it.exportAccountId == record.exportAccountId && it.exportDriveId == record.exportDriveId
+        }
+        if (!isCurrent()) return@withContext ReceiptHistoryImageResult.Unavailable("This receipt is no longer in History.", false)
+        val result = historyImageLoader?.load(record, allowDownload, thumbnail)
+            ?: ReceiptHistoryImageResult.Unavailable("Receipt preview is unavailable.")
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        if (isCurrent()) result else ReceiptHistoryImageResult.Unavailable("This receipt changed. Open it again.", false)
     }
     fun refreshHistory(expenseId: String) = historyAction { controller ->
         val observation = controller.inspect(expenseId)

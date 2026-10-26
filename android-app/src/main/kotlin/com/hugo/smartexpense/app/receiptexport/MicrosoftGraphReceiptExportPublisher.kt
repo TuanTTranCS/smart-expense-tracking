@@ -15,12 +15,15 @@ data class GraphContentRequest(
     val url: String,
     val headers: Map<String, String>,
     val body: ByteArray = byteArrayOf(),
+    val binaryResponse: Boolean = false,
+    val maxResponseBytes: Int = 4 * 1024 * 1024,
 )
 
 data class GraphContentResponse(
     val statusCode: Int,
     val body: String = "",
     val headers: Map<String, String> = emptyMap(),
+    val bodyBytes: ByteArray? = null,
 )
 
 fun interface GraphContentTransport {
@@ -29,8 +32,27 @@ fun interface GraphContentTransport {
 
 class AndroidGraphContentTransport : GraphContentTransport {
     override fun execute(request: GraphContentRequest): GraphContentResponse {
+        var current = request
+        var response = executeOnce(current)
+        if (!request.binaryResponse && request.method == "GET") repeat(3) {
+            if (response.statusCode in listOf(301, 302, 303, 307, 308)) {
+                val location = response.headers.entries.firstOrNull { it.key.equals("Location", true) }?.value
+                    ?: return response
+                val uri = java.net.URI(location)
+                require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null) { "Unsafe Graph redirect." }
+                current = current.copy(url = location, headers = current.headers.filterKeys {
+                    !it.equals("Authorization", true) && !it.equals("Cookie", true)
+                })
+                response = executeOnce(current)
+            }
+        }
+        return response
+    }
+
+    private fun executeOnce(request: GraphContentRequest): GraphContentResponse {
         val connection = URL(request.url).openConnection() as HttpURLConnection
         try {
+            connection.instanceFollowRedirects = false
             connection.requestMethod = request.method
             connection.connectTimeout = 10_000
             connection.readTimeout = 30_000
@@ -41,9 +63,21 @@ class AndroidGraphContentTransport : GraphContentTransport {
             }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val bytes = stream?.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= request.maxResponseBytes) { "Graph response exceeds size limit." }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            } ?: byteArrayOf()
             return GraphContentResponse(
                 statusCode = status,
-                body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty(),
+                body = if (request.binaryResponse) "" else bytes.toString(Charsets.UTF_8),
+                bodyBytes = bytes.takeIf { request.binaryResponse },
                 headers = connection.headerFields.filterKeys { it != null }
                     .mapValues { (_, values) -> values.orEmpty().joinToString(",") },
             )
@@ -62,6 +96,7 @@ class MicrosoftGraphReceiptExportPublisher(
         if (record.sourceType == ReceiptSourceType.IMAGE) require(imageBytes != null && imageBytes.isNotEmpty())
         else require(imageBytes == null)
         val token = accessToken(setOfNotNull(record.exportAccountId))
+        verifyDrive(token, setOfNotNull(record.exportDriveId), setOfNotNull(record.exportAccountId))
 
         if (record.sourceType == ReceiptSourceType.IMAGE) {
             val imagePath = requireNotNull(record.receiptImageRelativePath)
@@ -82,6 +117,7 @@ class MicrosoftGraphReceiptExportPublisher(
             else require(bytes == null)
         }
         val token = accessToken(records.mapNotNull { it.first.exportAccountId }.toSet())
+        verifyDrive(token, records.mapNotNull { it.first.exportDriveId }.toSet(), records.mapNotNull { it.first.exportAccountId }.toSet())
         for ((record, bytes) in records) {
             coroutineContext.ensureActive()
             if (record.sourceType == ReceiptSourceType.IMAGE) {
@@ -97,6 +133,30 @@ class MicrosoftGraphReceiptExportPublisher(
         put(token, batch.temporaryJsonRelativePath, "application/json", json.toByteArray(Charsets.UTF_8))
         coroutineContext.ensureActive()
         commitJson(token, batch.temporaryJsonRelativePath, batch.jsonRelativePath, json)
+    }
+
+    suspend fun resolveCurrentDriveId(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val account = authenticationClient.loadCurrentAccount()?.id
+            ?: throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
+        val token = accessToken(setOf(account))
+        val drive = readDrive(token)
+        if (authenticationClient.loadCurrentAccount()?.id != account)
+            throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
+        drive
+    }
+
+    private suspend fun verifyDrive(token: String, expected: Set<String>, accounts: Set<String>) {
+        if (expected.isEmpty()) return
+        if (expected.size != 1 || readDrive(token) !in expected || accounts.size != 1 ||
+            authenticationClient.loadCurrentAccount()?.id !in accounts)
+            throw ReceiptExportException(ReceiptExportFailure.RECONNECT_REQUIRED)
+        coroutineContext.ensureActive()
+    }
+
+    private fun readDrive(token: String): String {
+        val response = execute(token, "GET", "$GRAPH_ROOT/me/drive?\$select=id", "application/json", byteArrayOf())
+        if (response.statusCode !in 200..299) throw response.toExportException()
+        return org.json.JSONObject(response.body).getString("id").also { require(it.isNotBlank()) }
     }
 
     private suspend fun accessToken(expectedAccountIds: Set<String>): String = try {

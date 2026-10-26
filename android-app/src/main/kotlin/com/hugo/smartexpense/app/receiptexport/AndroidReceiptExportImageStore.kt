@@ -23,6 +23,7 @@ class AndroidReceiptExportImageStore(
     override fun read(localPath: String): ByteArray {
         val file = File(localPath).canonicalFile
         require(file.parentFile == exportDirectory.canonicalFile) { "Invalid local receipt export path." }
+        require(file.length() in 1 until 200 * 1024) { "Invalid local receipt export image size." }
         return file.readBytes()
     }
 }

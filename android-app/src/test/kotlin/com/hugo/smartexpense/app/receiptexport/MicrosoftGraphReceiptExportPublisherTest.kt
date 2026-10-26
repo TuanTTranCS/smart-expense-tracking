@@ -17,6 +17,28 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class MicrosoftGraphReceiptExportPublisherTest {
+    @Test fun boundDriveMismatchPreventsAnyUpload() = runTest {
+        val requests = mutableListOf<GraphContentRequest>()
+        val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) {
+            requests += it
+            GraphContentResponse(200, "{\"id\":\"different-drive\"}")
+        }
+        assertEquals(ReceiptExportFailure.RECONNECT_REQUIRED, assertFailsWith<ReceiptExportException> {
+            publisher.publish(sampleRecord().copy(exportAccountId = "id", exportDriveId = "original-drive"), byteArrayOf(1))
+        }.failure)
+        assertEquals(listOf("GET"), requests.map { it.method })
+    }
+
+    @Test fun matchingBoundDriveIsVerifiedBeforeImageOrJsonUpload() = runTest {
+        val requests = mutableListOf<GraphContentRequest>()
+        val publisher = MicrosoftGraphReceiptExportPublisher(FakeAuthenticationClient()) {
+            requests += it
+            GraphContentResponse(200, if (it.method == "GET") "{\"id\":\"drive\"}" else "")
+        }
+        publisher.publish(sampleTypedRecord().copy(exportAccountId = "id", exportDriveId = "drive"), null)
+        assertEquals(listOf("GET", "PUT", "PATCH"), requests.map { it.method })
+    }
+
     @Test
     fun createsFoldersThenUploadsImageBeforeTemporaryAndFinalJson() = runTest {
         val requests = mutableListOf<GraphContentRequest>()

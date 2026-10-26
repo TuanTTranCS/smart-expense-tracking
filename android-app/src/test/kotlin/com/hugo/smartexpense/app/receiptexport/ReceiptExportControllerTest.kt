@@ -17,6 +17,24 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class ReceiptExportControllerTest {
+    @Test fun accountSwitchDuringDriveBindingPreventsSnapshotPersistenceAndUpload() = runTest {
+        var account = "original"
+        var saves = 0
+        val controller = ReceiptExportController(
+            repository = object : ReceiptExportRepository {
+                override suspend fun save(record: ReceiptExportRecord) { saves++ }
+                override suspend fun get(expenseId: String): ReceiptExportRecord? = null
+            },
+            imagePreparer = ReceiptExportImagePreparer { _, _ -> error("must not prepare") },
+            imageReader = ReceiptExportImageReader { error("must not read") },
+            publisher = ReceiptExportPublisher { _, _ -> error("must not publish") },
+            sourceDeviceId = { "device" },
+            exportAccountId = { account },
+            exportDriveId = { account = "different"; "drive" },
+        )
+        assertFailsWith<IllegalStateException> { controller.start(validReview()) }
+        assertEquals(0, saves)
+    }
     @Test
     fun separateTransactionsGetSeparateJsonFilesAndStatuses() = runTest {
         val records = mutableMapOf<String, ReceiptExportRecord>()
@@ -51,6 +69,7 @@ class ReceiptExportControllerTest {
         val repository = FakeRepository()
         var prepareCalls = 0
         var publishCalls = 0
+        var drive = "original-drive"
         val published = mutableListOf<ReceiptExportRecord>()
         val controller = ReceiptExportController(
             repository = repository,
@@ -67,9 +86,12 @@ class ReceiptExportControllerTest {
             sourceDeviceName = { "Hugo's Pixel" },
             now = { ZonedDateTime.of(2026, 9, 6, 14, 5, 7, 0, ZoneId.of("America/Vancouver")) },
             newExpenseId = { "018f6b3e-1111-2222-3333-444444444444" },
+            exportAccountId = { "account" },
+            exportDriveId = { drive },
         )
 
         val failed = controller.start(validReview())
+        drive = "different-drive"
         val succeeded = controller.retry(failed.expenseId)
 
         assertEquals(ReceiptExportStatus.FAILED, failed.status)
@@ -83,6 +105,8 @@ class ReceiptExportControllerTest {
         assertEquals("Documents/2_Others/Expenses_finance/logs/expense_20260906_140507_018f6b3e.json", succeeded.jsonRelativePath)
         assertEquals("Hugo's Pixel", succeeded.sourceDeviceName)
         assertEquals(published[0].sourceDeviceName, published[1].sourceDeviceName)
+        assertEquals("account", succeeded.exportAccountId)
+        assertEquals("original-drive", succeeded.exportDriveId)
     }
 
     @Test

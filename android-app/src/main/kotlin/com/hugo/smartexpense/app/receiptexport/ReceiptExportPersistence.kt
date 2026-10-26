@@ -49,6 +49,7 @@ data class ReceiptExportEntity(
     @ColumnInfo(name = "last_remote_status") val lastRemoteStatus: String? = null,
     @ColumnInfo(name = "last_remote_checked_at") val lastRemoteCheckedAt: String? = null,
     @ColumnInfo(name = "last_remote_message") val lastRemoteMessage: String? = null,
+    @ColumnInfo(name = "export_drive_id") val exportDriveId: String? = null,
 )
 
 @Entity(tableName = "receipt_export_batches")
@@ -122,7 +123,7 @@ interface ReceiptExportDao {
     suspend fun markBatchCommitted(batchId: String)
 }
 
-@Database(entities = [ReceiptExportEntity::class, ReceiptExportBatchEntity::class, ReceiptHistoryDraftEntity::class, ReceiptCorrectionOperationEntity::class], version = 5, exportSchema = true)
+@Database(entities = [ReceiptExportEntity::class, ReceiptExportBatchEntity::class, ReceiptHistoryDraftEntity::class, ReceiptCorrectionOperationEntity::class], version = 6, exportSchema = true)
 abstract class ReceiptExportDatabase : RoomDatabase() {
     abstract fun receiptExportDao(): ReceiptExportDao
 
@@ -134,7 +135,13 @@ abstract class ReceiptExportDatabase : RoomDatabase() {
                 context.applicationContext,
                 ReceiptExportDatabase::class.java,
                 "receipt-exports.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
+        }
+
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE receipt_exports ADD COLUMN export_drive_id TEXT")
+            }
         }
 
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
@@ -218,7 +225,7 @@ private fun ReceiptExportRecord.toEntity() = ReceiptExportEntity(
     extractionStatus, merchantLocation, originalImageFileName, sourceImageUri,
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, status.name, failure?.name, retryAfterSeconds,
-    schemaVersion, sourceType.name, notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.name, lastRemoteCheckedAt, lastRemoteMessage,
+    schemaVersion, sourceType.name, notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.name, lastRemoteCheckedAt, lastRemoteMessage, exportDriveId,
 )
 
 private fun ReceiptExportEntity.toDomain() = ReceiptExportRecord(
@@ -227,7 +234,7 @@ private fun ReceiptExportEntity.toDomain() = ReceiptExportRecord(
     receiptImageRelativePath, jsonRelativePath, temporaryJsonRelativePath,
     normalizedImageLocalPath, ReceiptExportStatus.valueOf(status),
     failure?.let(ReceiptExportFailure::valueOf), retryAfterSeconds,
-    schemaVersion, ReceiptSourceType.valueOf(sourceType), notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.let(ReceiptRemoteStatus::valueOf), lastRemoteCheckedAt, lastRemoteMessage,
+    schemaVersion, ReceiptSourceType.valueOf(sourceType), notes, batchId, completedAt, historyHidden, exportAccountId, lastCorrectionOperationId, lastRemoteStatus?.let(ReceiptRemoteStatus::valueOf), lastRemoteCheckedAt, lastRemoteMessage, exportDriveId,
 )
 
 class RoomReceiptHistoryStore(private val dao: ReceiptExportDao) : ReceiptHistoryStore {

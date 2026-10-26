@@ -1,6 +1,8 @@
 # Smart Expense Tracking Implementation Plan
 
-Last updated: 2026-10-17
+Last updated: 2026-10-25
+
+✅ Done (2026-10-25): [Plan 12 I12-9](12.export-history-date-context-and-json-edit-plan.md#i12-9--add-tappable-history-receipt-thumbnails) implements tappable History receipt thumbnails and the shared zoomable viewer, local-first loading, verified on-demand OneDrive recovery, private bounded caching and Room v6 drive binding. Shared/Android unit tests, debug build, instrumentation compilation and focused History emulator checks pass against `REQ-UI-016`/`AC-068`. Pixel 7 History thumbnails and image viewing are ✅ Done, confirmed by Hugo on 2026-10-25; live OneDrive recovery verification remains Pending. See [Gap 19](gap-closing-plan-details.md#gap-19-history-receipt-thumbnails) and [verification](12.export-history-verification.md#history-receipt-thumbnails-and-viewer-i12-9).
 
 ✅ Done (2026-10-17): [Gap 18](gap-closing-plan-details.md#gap-18-correction-archival-and-quiet-deferred-retries) adds terminal correction archival, ledger-based acknowledgement recovery, archive-aware Android retries and persistent quiet deferred retries for correction/original handoffs. Unit/wrapper/disposable Excel regressions, targeted Android tests and debug assembly pass; see [verification](12.export-history-verification.md#correction-archival-and-quiet-deferred-retries).
 

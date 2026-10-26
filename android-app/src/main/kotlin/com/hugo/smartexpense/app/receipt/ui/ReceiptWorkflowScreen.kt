@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -255,7 +256,7 @@ internal fun SelectedReceiptImageReview(selectedImage: ReceiptImage?, onRemove: 
     }
 }
 
-private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
+internal fun decodeReceiptPreview(bytes: ByteArray, maximumEdge: Int = 4096): android.graphics.Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -263,8 +264,8 @@ private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
     // A 4x viewer needs more detail than the compact preview. Cap decoded memory at roughly
     // 48 MiB (12 million ARGB pixels) and the longest edge at 4096 px.
     while (
-        bounds.outWidth / sampleSize > 4096 ||
-        bounds.outHeight / sampleSize > 4096 ||
+        bounds.outWidth / sampleSize > maximumEdge ||
+        bounds.outHeight / sampleSize > maximumEdge ||
         bounds.outWidth.toLong() / sampleSize * (bounds.outHeight.toLong() / sampleSize) > 12_000_000L
     ) {
         sampleSize *= 2
@@ -279,9 +280,11 @@ private fun decodeReceiptPreview(bytes: ByteArray): android.graphics.Bitmap? {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SelectedReceiptImageViewer(
-    image: androidx.compose.ui.graphics.ImageBitmap,
+internal fun SelectedReceiptImageViewer(
+    image: androidx.compose.ui.graphics.ImageBitmap?,
     onRemove: (() -> Unit)? = null,
+    label: String? = null,
+    unavailableContent: @Composable () -> Unit = {},
     onClose: () -> Unit,
 ) {
     Dialog(
@@ -290,11 +293,12 @@ private fun SelectedReceiptImageViewer(
     ) {
         var viewport by remember { mutableStateOf(IntSize.Zero) }
         var transform by remember { mutableStateOf(ReceiptImageViewerTransform()) }
-        val imageWidth = image.width.toFloat()
-        val imageHeight = image.height.toFloat()
+        val imageWidth = image?.width?.toFloat() ?: 1f
+        val imageHeight = image?.height?.toFloat() ?: 1f
         val viewportWidth = viewport.width.toFloat()
         val viewportHeight = viewport.height.toFloat()
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            label?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
             Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface) {
                 FlowRow(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     onRemove?.let { TextButton({ it(); onClose() }) { Text("Remove") } }
@@ -306,7 +310,7 @@ private fun SelectedReceiptImageViewer(
                                 viewportWidth, viewportHeight, imageWidth, imageHeight,
                             )
                         },
-                        enabled = canZoomIn,
+                        enabled = image != null && canZoomIn,
                         modifier = Modifier.semantics { contentDescription = "Zoom in" },
                     ) { Text("Zoom in") }
                     val canZoomOut = transform.scale > ReceiptImageViewerTransform.MIN_SCALE
@@ -317,12 +321,12 @@ private fun SelectedReceiptImageViewer(
                                 viewportWidth, viewportHeight, imageWidth, imageHeight,
                             )
                         },
-                        enabled = canZoomOut,
+                        enabled = image != null && canZoomOut,
                         modifier = Modifier.semantics { contentDescription = "Zoom out" },
                     ) { Text("Zoom out") }
                     TextButton(
                         onClick = onClose,
-                        modifier = Modifier.semantics { contentDescription = "Close selected receipt image" },
+                        modifier = Modifier.semantics { contentDescription = if (label == null) "Close selected receipt image" else "Close receipt image" },
                     ) { Text("Close") }
                 }
             }
@@ -351,9 +355,9 @@ private fun SelectedReceiptImageViewer(
                     }
                 },
             ) {
-                androidx.compose.foundation.Image(
+                if (image == null) unavailableContent() else androidx.compose.foundation.Image(
                     bitmap = image,
-                    contentDescription = "Selected receipt image",
+                    contentDescription = if (label == null) "Selected receipt image" else label,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().graphicsLayer {
                         scaleX = transform.scale

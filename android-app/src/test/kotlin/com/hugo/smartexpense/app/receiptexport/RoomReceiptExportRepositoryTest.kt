@@ -50,6 +50,44 @@ class RoomReceiptExportRepositoryTest {
         assertEquals(typed, RoomReceiptExportRepository(database.receiptExportDao()).get(typed.expenseId))
     }
 
+    @Test fun v5MigrationPreservesHistoryAndAddsUnknownDriveWithoutBackfill() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "receipt-export-v5-image-migration.db"
+        context.deleteDatabase(name)
+        val file = context.getDatabasePath(name).apply { parentFile!!.mkdirs() }
+        val schemaFile = java.io.File("schemas/com.hugo.smartexpense.app.receiptexport.ReceiptExportDatabase/5.json")
+            .let { if (it.isFile) it else java.io.File("android-app", it.path) }
+        val entities = org.json.JSONObject(schemaFile.readText()).getJSONObject("database").getJSONArray("entities")
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            for (index in 0 until entities.length()) {
+                val entity = entities.getJSONObject(index)
+                db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+            }
+            db.execSQL("""INSERT INTO receipt_exports (expense_id, created_at, source_device_id, source_device_name,
+                receipt_date, merchant_name, total_amount, currency, extraction_status, json_relative_path,
+                temporary_json_relative_path, status, schema_version, source_type, notes, history_hidden,
+                export_account_id, last_correction_operation_id, normalized_image_local_path, receipt_image_relative_path)
+                VALUES ('old', '2026-10-01T12:00:00Z', 'device', 'Phone', '2026-10-01', 'Merchant', '12.30',
+                'CAD', 'manual', 'final.json', 'temporary.json', 'EXPORTED', 2, 'IMAGE', 'keep', 1,
+                'original-account', 'correction-operation', '/private/export.jpg', 'remote/export.jpg')""")
+            db.version = 5
+        }
+        val migrated = Room.databaseBuilder(context, ReceiptExportDatabase::class.java, name)
+            .addMigrations(ReceiptExportDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+        try {
+            val restored = requireNotNull(RoomReceiptExportRepository(migrated.receiptExportDao()).get("old"))
+            assertNull(restored.exportDriveId)
+            assertEquals("original-account", restored.exportAccountId)
+            assertEquals("correction-operation", restored.lastCorrectionOperationId)
+            assertEquals(true, restored.historyHidden)
+            assertEquals("/private/export.jpg", restored.normalizedImageLocalPath)
+            assertEquals("remote/export.jpg", restored.receiptImageRelativePath)
+            val bound = restored.copy(exportDriveId = "verified-drive")
+            RoomReceiptExportRepository(migrated.receiptExportDao()).save(bound)
+            assertEquals(bound, RoomReceiptExportRepository(migrated.receiptExportDao()).get("old"))
+        } finally { migrated.close(); context.deleteDatabase(name) }
+    }
+
     @Test
     fun realV2MigrationPreservesPendingAndCompletedExportsAndSupportsTypedRows() = runTest {
         verifyMigration(2)
@@ -113,7 +151,7 @@ class RoomReceiptExportRepositoryTest {
             db.version = 3
         }
         val migratedDatabase = Room.databaseBuilder(context, ReceiptExportDatabase::class.java, name)
-            .addMigrations(ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
+            .addMigrations(ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5, ReceiptExportDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
         try {
             assertEquals(typed, RoomReceiptExportRepository(migratedDatabase.receiptExportDao()).get(typed.expenseId))
         } finally {
@@ -155,7 +193,7 @@ class RoomReceiptExportRepositoryTest {
             db.version = version
         }
         val migratedDatabase = Room.databaseBuilder(context, ReceiptExportDatabase::class.java, name)
-            .addMigrations(ReceiptExportDatabase.MIGRATION_1_2, ReceiptExportDatabase.MIGRATION_2_3, ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
+            .addMigrations(ReceiptExportDatabase.MIGRATION_1_2, ReceiptExportDatabase.MIGRATION_2_3, ReceiptExportDatabase.MIGRATION_3_4, ReceiptExportDatabase.MIGRATION_4_5, ReceiptExportDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
         try {
             val migrated = RoomReceiptExportRepository(migratedDatabase.receiptExportDao())
             assertEquals(pending, migrated.get(pending.expenseId))

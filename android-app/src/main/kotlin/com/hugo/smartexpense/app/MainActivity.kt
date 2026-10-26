@@ -61,6 +61,10 @@ class MainActivity : ComponentActivity() {
         )
         val graphAuthenticationClient = MsalGraphAuthenticationClient(this)
         val exportImageStore = AndroidReceiptExportImageStore(this, imageLoader)
+        val exportPublisher = MicrosoftGraphReceiptExportPublisher(graphAuthenticationClient)
+        val historyImageLoader = com.hugo.smartexpense.app.receiptexport.AndroidReceiptHistoryImageLoader(
+            this, exportImageStore, graphAuthenticationClient,
+        )
         val exportDao = ReceiptExportDatabase.getInstance(this).receiptExportDao()
         val exportRepository = RoomReceiptExportRepository(exportDao)
         val historyController = com.hugo.smartexpense.app.receiptexport.ReceiptHistoryController(
@@ -72,7 +76,7 @@ class MainActivity : ComponentActivity() {
             repository = exportRepository,
             imagePreparer = exportImageStore,
             imageReader = exportImageStore,
-            publisher = MicrosoftGraphReceiptExportPublisher(graphAuthenticationClient),
+            publisher = exportPublisher,
             sourceDeviceId = {
                 preferences.getString("source_device_id", null) ?: UUID.randomUUID().toString().also {
                     preferences.edit().putString("source_device_id", it).apply()
@@ -80,6 +84,7 @@ class MainActivity : ComponentActivity() {
             },
             sourceDeviceName = { settingsRepository.settings.value.deviceName },
             exportAccountId = { graphAuthenticationClient.loadCurrentAccount()?.id },
+            exportDriveId = exportPublisher::resolveCurrentDriveId,
         )
         val profilesFactory = ModelProfilesViewModel.Factory {
             ModelProfilesViewModel(
@@ -167,6 +172,7 @@ class MainActivity : ComponentActivity() {
                 loadExportBatchRecords = exportController::batchRecordsForExpense,
                 loadSavedExportRecord = exportController::savedRecordForExpense,
                 historyController = historyController,
+                historyImageLoader = historyImageLoader,
             )
         }
 

@@ -36,6 +36,7 @@ class GraphAuthenticationViewModelTest {
 
         assertEquals(GraphAuthenticationStatus.SIGNED_IN, viewModel.uiState.value.status)
         assertEquals("hugo@example.com", viewModel.uiState.value.accountDisplayName)
+        assertEquals(ACCOUNT.id, viewModel.uiState.value.accountId)
         assertFalse(viewModel.uiState.value.busy)
     }
 
@@ -53,9 +54,12 @@ class GraphAuthenticationViewModelTest {
         advanceUntilIdle()
         assertEquals(GraphAuthenticationStatus.SIGNED_IN, viewModel.uiState.value.status)
 
+        assertEquals("new-account", viewModel.uiState.value.accountId)
+
         viewModel.disconnect()
         advanceUntilIdle()
         assertEquals(GraphAuthenticationStatus.SIGNED_OUT, viewModel.uiState.value.status)
+        assertEquals(null, viewModel.uiState.value.accountId)
         assertTrue(client.signedOut)
         assertTrue(viewModel.uiState.value.message!!.contains("preserved"))
     }

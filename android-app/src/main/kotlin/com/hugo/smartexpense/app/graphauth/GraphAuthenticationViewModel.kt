@@ -26,6 +26,7 @@ data class GraphAuthenticationUiState(
     val busy: Boolean = true,
     val message: String? = null,
     val folderVerified: Boolean = false,
+    val accountId: String? = null,
 )
 
 class GraphAuthenticationViewModel(
@@ -114,6 +115,7 @@ class GraphAuthenticationViewModel(
     private fun signedInState(account: GraphAccount, message: String) = GraphAuthenticationUiState(
         status = GraphAuthenticationStatus.SIGNED_IN,
         accountDisplayName = account.displayName,
+        accountId = account.id,
         busy = false,
         message = message,
     )

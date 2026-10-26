@@ -11,6 +11,9 @@ import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hugo.smartexpense.app.ReceiptSourceType
 import org.junit.Assert.assertEquals
+import android.graphics.Bitmap
+import java.io.ByteArrayOutputStream
+import androidx.test.espresso.Espresso.pressBack
 
 @RunWith(AndroidJUnit4::class)
 class ReceiptHistoryDeviceTest {
@@ -22,6 +25,49 @@ class ReceiptHistoryDeviceTest {
         temporaryJsonRelativePath = "expense.json.uploading", normalizedImageLocalPath = null,
         status = ReceiptExportStatus.EXPORTED, schemaVersion = 3, sourceType = ReceiptSourceType.TYPED)
     @get:Rule val compose = createComposeRule()
+    @Test fun typedExpenseSkipsImageOperations() {
+        var calls = 0
+        compose.setContent { MaterialTheme { ReceiptHistoryScreen(
+            ReceiptWorkflowUiState(history = listOf(sampleRecord())), {}, {}, {}, {}, {}, {}, {}, {}, {},
+            onLoadImage = { _, _, _ -> calls++; ReceiptHistoryImageResult.NoImage },
+        ) } }
+        compose.onNodeWithText("No receipt image").performScrollTo().assertExists()
+        compose.runOnIdle { assertEquals(0, calls) }
+    }
+
+    @Test fun historyPlaceholderRetryZoomBackAndReopenReset() {
+        val record = sampleRecord().copy(sourceType = ReceiptSourceType.IMAGE, schemaVersion = 2,
+            receiptImageRelativePath = "receipts/exported.jpg")
+        val image = Bitmap.createBitmap(80, 800, Bitmap.Config.ARGB_8888)
+        val bytes = ByteArrayOutputStream().use { output ->
+            image.compress(Bitmap.CompressFormat.PNG, 100, output); image.recycle(); output.toByteArray()
+        }
+        var downloads = 0
+        compose.setContent { MaterialTheme { ReceiptHistoryScreen(
+            ReceiptWorkflowUiState(history = listOf(record)), {}, {}, {}, {}, {}, {}, {}, {}, {},
+            onLoadImage = { _, download, thumbnail ->
+                if (download) downloads++
+                if (thumbnail || downloads == 1) ReceiptHistoryImageResult.Unavailable("Receipt is not cached. Reconnect and retry.")
+                else ReceiptHistoryImageResult.Available(bytes)
+            },
+        ) } }
+        val description = "View receipt for ${record.merchantName}, ${record.receiptDate}, ${record.currency} ${record.totalAmount}, ${record.expenseId}"
+        compose.onNodeWithContentDescription(description).performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Retry receipt image").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Retry receipt image").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Exported receipt copy").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Remove").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Zoom in").performClick()
+        compose.onNodeWithContentDescription("Zoom out").assertIsEnabled()
+        pressBack()
+        compose.onNodeWithContentDescription("Exported receipt copy").assertDoesNotExist()
+        compose.onNodeWithContentDescription(description).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Exported receipt copy").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Zoom out").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Close receipt image").performClick()
+        compose.runOnIdle { assertEquals(3, downloads) }
+    }
     @Test fun historyShowsOfflineLegacyDateAndLocalDeleteUndo() {
         val record = sampleRecord().copy(status = ReceiptExportStatus.EXPORTED)
         val state = mutableStateOf(ReceiptWorkflowUiState(history = listOf(record)))

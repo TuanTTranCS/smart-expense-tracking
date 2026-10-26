@@ -1,6 +1,15 @@
 # Gap-Closing Plan Details
 
-Last updated: 2026-10-18
+Last updated: 2026-10-25
+
+## Gap 19: History Receipt Thumbnails
+
+Implementation, unit/UI tests, debug build and focused History emulator verification: ✅ Done (2026-10-25). Pixel 7 History thumbnails and image viewing: ✅ Done, confirmed by Hugo on 2026-10-25. Live OneDrive recovery verification: Pending; Hugo could not verify it yet.
+
+- Hugo selected option 2: each image-backed History expense gets a tappable thumbnail opening the existing full-screen zoomable receipt viewer. Typed expenses show **No receipt image**.
+- Resolve the saved normalized export JPEG locally first, then recover it on demand from the verified matching OneDrive account/drive and cache it privately. Preserve readable text, explicit loading/failure/retry states, published values, correction drafts and local Delete/Undo semantics.
+- Room v6 preserves existing History/export/correction records and adds verified drive identity to new exports. Old unbound exports remain locally viewable and explain why remote recovery cannot verify ownership. Cache eviction/atomic-write failures preserve retained export files; viewing cannot mutate drafts, processing status or published values.
+- **94 shared JVM tests and 345 Android unit tests pass**, debug assembly/instrumentation compilation succeed, and **23 emulator tests pass** (5 History, 7 existing workflow/viewer, 11 batch). Checked `REQ-UI-016`/`AC-068` and existing History/viewer/export requirements; README now explains usage. See [Plan 12 I12-9](12.export-history-date-context-and-json-edit-plan.md#i12-9--add-tappable-history-receipt-thumbnails) and [executed verification](12.export-history-verification.md#history-receipt-thumbnails-and-viewer-i12-9) for Hugo's Pixel 7 thumbnail/viewing confirmation and the separately pending OneDrive recovery check.
 
 ## README Presentation Refresh
 
